@@ -7,7 +7,11 @@ const os = require('os');
 const zlib = require('zlib');
 
 const PORT = process.env.PORT || 4567;
-const LIB_DIR = process.env.LENS_LIBRARY || path.join(os.homedir(), 'Pictures', 'LensLibrary');
+const LIB_DIR = process.env.LENS_LIBRARY || (
+  process.env.VERCEL
+    ? path.join(os.tmpdir(), 'lens-library')
+    : path.join(os.homedir(), 'Pictures', 'LensLibrary')
+);
 const ORIG_DIR = path.join(LIB_DIR, 'originals');
 const THUMB_DIR = path.join(LIB_DIR, 'thumbs');
 const TMP_DIR = path.join(LIB_DIR, 'tmp');
@@ -383,7 +387,11 @@ app.delete('/api/items/:id', (req, res) => {
 
 backfillPromptsFromMetadata();
 
-app.listen(PORT, () => {
-  console.log(`Lens running at http://localhost:${PORT}`);
-  console.log(`Library: ${LIB_DIR}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Lens running at http://localhost:${PORT}`);
+    console.log(`Library: ${LIB_DIR}`);
+  });
+}
+
+module.exports = app;

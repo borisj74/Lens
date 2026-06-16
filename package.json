@@ -1,0 +1,25 @@
+{
+  "name": "lens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local library for AI-generated images and videos",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "start:daemon": "pm2 start ecosystem.config.js",
+    "stop:daemon": "pm2 stop lens",
+    "restart:daemon": "pm2 restart lens",
+    "delete:daemon": "pm2 delete lens",
+    "status:daemon": "pm2 list",
+    "logs": "pm2 logs lens"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "pm2": "^7.0.1"
+  }
+}

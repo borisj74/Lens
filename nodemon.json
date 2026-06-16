@@ -1,0 +1,6 @@
+{
+  "watch": ["server.js", "ecosystem.config.js"],
+  "ext": "js,json",
+  "ignore": ["public/**", "node_modules/**", "**/LensLibrary/**"],
+  "delay": "300ms"
+}

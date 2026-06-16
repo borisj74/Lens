@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lens</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css?v=73" />
+</head>
+<body>
+  <header class="topnav" id="topnav">
+    <div class="topnav-brand">
+      <span class="logo-mark" id="logo-mark" role="img" aria-label="Lens"></span>
+    </div>
+
+    <div class="pill-cluster" role="group" aria-label="Library">
+      <button class="nav-icon-btn" id="nav-all" data-active="true" aria-label="All items" title="All items">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+        <span class="visually-hidden" id="count-all">0</span>
+      </button>
+      <button class="nav-icon-btn" id="nav-fav" aria-label="Favorites" title="Favorites">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+        <span class="visually-hidden" id="count-fav">0</span>
+      </button>
+    </div>
+
+    <div class="pill-cluster" role="group" aria-label="Browse">
+      <button class="nav-icon-btn nav-icon-btn--expand" id="collections-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="collections-pop" aria-label="Collections" title="Collections">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1"/><path d="M7 3v18"/><path d="M20.4 18.9c.2.5-.1 1.1-.6 1.3l-1.9.7c-.5.2-1.1-.1-1.3-.6L11.1 5.1c-.2-.5.1-1.1.6-1.3l1.9-.7c.5-.2 1.1.1 1.3.6Z"/></svg>
+        <span class="nav-icon-label">Collections</span>
+        <span class="visually-hidden" id="count-collections">0</span>
+        <svg class="pill-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <button class="nav-icon-btn nav-icon-btn--expand" id="srefs-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="srefs-pop" aria-label="Srefs" title="Srefs">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>
+        <span class="nav-icon-label">Srefs</span>
+        <span class="visually-hidden" id="count-srefs">0</span>
+        <svg class="pill-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <button class="nav-icon-btn nav-icon-btn--expand" id="filters-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="filters-pop" aria-label="Filters" title="Filters">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"/></svg>
+        <span class="nav-icon-label">Filters</span>
+        <svg class="pill-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+
+    <div class="search-bar">
+        <svg class="search-icon" id="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>
+        <div class="search-color-tags" id="search-color-tags"></div>
+        <input id="search" class="search-input" type="text" placeholder="Search" autocomplete="off" />
+        <button id="search-clear" class="search-clear" aria-label="Clear search" hidden>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+        <button class="color-btn" id="color-btn" aria-label="Filter by color" aria-expanded="false" title="Filter by color">
+          <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <ellipse cx="6.796" cy="17.118" rx="1.952" ry="1.941" fill="#4694F6"/>
+            <ellipse cx="17.205" cy="17.231" rx="1.952" ry="1.941" fill="#C877CB"/>
+            <ellipse cx="6.796" cy="6.882" rx="1.952" ry="1.941" fill="#81B386"/>
+            <ellipse cx="17.205" cy="6.769" rx="1.952" ry="1.941" fill="#9C6030"/>
+            <ellipse cx="19.548" cy="11.686" rx="1.952" ry="1.941" fill="#A0213E"/>
+            <ellipse cx="12.001" cy="4.441" rx="1.952" ry="1.941" fill="#EBB042"/>
+            <ellipse cx="4.452" cy="11.686" rx="1.952" ry="1.941" fill="#77CDD0"/>
+            <ellipse cx="12" cy="19.559" rx="1.952" ry="1.941" fill="#6951F5"/>
+          </svg>
+        </button>
+        <div class="search-pop" id="search-pop" hidden></div>
+        <div class="color-pop" id="color-pop" hidden>
+          <div class="sv-area" id="sv-area">
+            <div class="sv-thumb" id="sv-thumb"></div>
+          </div>
+          <div class="hue-slider" id="hue-slider">
+            <div class="hue-thumb" id="hue-thumb"></div>
+          </div>
+          <div class="picker-row">
+            <div class="picker-row-left">
+              <div class="hex-pill">
+                <span class="hex-swatch" id="hex-swatch"></span>
+                <span class="hex-text mono" id="hex-text">#D57B7B</span>
+                <button class="hex-clear" id="picker-clear" aria-label="Clear color filter">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="m5 5 14 14m0-14L5 19"/></svg>
+                </button>
+              </div>
+            </div>
+            <button class="picker-done" id="picker-done">Search</button>
+          </div>
+        </div>
+      </div>
+      <div class="topnav-right">
+        <div class="active-chips" id="active-chips"></div>
+        <div class="size-control" title="Thumbnail size">
+          <svg class="size-control-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+          <input type="range" class="size-slider" id="size-slider" min="0" max="100" value="50" aria-label="Thumbnail size" />
+          <svg class="size-control-icon size-control-icon--lg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8.5" height="8.5" rx="1.5"/><rect x="12.5" y="3" width="8.5" height="8.5" rx="1.5"/><rect x="3" y="12.5" width="8.5" height="8.5" rx="1.5"/><rect x="12.5" y="12.5" width="8.5" height="8.5" rx="1.5"/></svg>
+        </div>
+        <div class="sort-wrap">
+          <button class="btn-circle" id="sort-btn" aria-haspopup="listbox" aria-expanded="false" aria-label="Sort order" title="Sort">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-4 4-4-4"/><path d="M17 20V4"/><path d="m3 8 4-4 4 4"/><path d="M7 4v16"/></svg>
+            <span id="sort-label" class="visually-hidden">Newest</span>
+          </button>
+          <div class="sort-menu" id="sort-menu" role="listbox" hidden>
+            <button class="sort-option" role="option" data-value="added-desc">Newest</button>
+            <button class="sort-option" role="option" data-value="added-asc">Oldest</button>
+            <button class="sort-option" role="option" data-value="name-asc">Name A-Z</button>
+            <button class="sort-option" role="option" data-value="name-desc">Name Z-A</button>
+            <button class="sort-option" role="option" data-value="random">Random</button>
+          </div>
+        </div>
+        <button class="btn-circle" id="import-btn" aria-label="Import images" title="Import">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
+        </button>
+        <input type="file" id="file-input" multiple accept="image/*,video/*" hidden />
+      </div>
+    </header>
+
+    <div class="nav-pop nav-pop--library" id="collections-pop" role="menu" aria-label="Collections" hidden>
+      <div class="nav-pop-head">
+        <span class="nav-pop-title">Collections</span>
+        <span class="nav-pop-count-badge" id="collections-count-badge">0</span>
+        <button class="nav-pop-add" id="new-collection" aria-label="New collection" title="New collection">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        </button>
+      </div>
+      <div class="nav-pop-search nav-pop-search--block">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="collections-search" type="text" placeholder="Search collections" autocomplete="off" aria-label="Search collections" />
+      </div>
+      <div class="nav-pop-body nav-pop-body--scroll" id="collections-body">
+        <section class="nav-pop-section" id="collections-pinned" hidden>
+          <div class="nav-pop-section-label">PINNED</div>
+          <div class="nav-pop-list" id="collections-pinned-row"></div>
+        </section>
+        <section class="nav-pop-section">
+          <div class="nav-pop-section-label nav-pop-section-label--all">
+            <span>ALL</span>
+            <span class="nav-pop-section-total" id="collections-all-count">0</span>
+          </div>
+          <div class="nav-pop-list" id="collections-list"></div>
+        </section>
+        <div class="nav-pop-empty filter-empty" id="collections-empty">No collections yet. Select images, then “Add to collection”.</div>
+      </div>
+      <div class="nav-pop-foot nav-pop-foot--end">
+        <button class="nav-pop-viewall" id="collections-view-all" type="button">View all</button>
+      </div>
+    </div>
+
+    <div class="nav-pop nav-pop--library" id="srefs-pop" role="menu" aria-label="Srefs" hidden>
+      <div class="nav-pop-head">
+        <span class="nav-pop-title">Srefs</span>
+        <span class="nav-pop-count-badge" id="srefs-count-badge">0</span>
+        <button class="nav-pop-add" id="new-sref" aria-label="New sref" title="New sref">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+        </button>
+      </div>
+      <div class="nav-pop-search nav-pop-search--block">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="srefs-search" type="text" placeholder="Search srefs" autocomplete="off" aria-label="Search srefs" />
+      </div>
+      <div class="nav-pop-body nav-pop-body--scroll" id="srefs-body">
+        <section class="nav-pop-section" id="srefs-pinned" hidden>
+          <div class="nav-pop-section-label">PINNED</div>
+          <div class="nav-pop-list" id="srefs-pinned-row"></div>
+        </section>
+        <section class="nav-pop-section">
+          <div class="nav-pop-section-label nav-pop-section-label--all">
+            <span>ALL</span>
+            <span class="nav-pop-section-total" id="srefs-all-count">0</span>
+          </div>
+          <div class="nav-pop-list" id="srefs-list"></div>
+        </section>
+        <div class="nav-pop-empty filter-empty" id="srefs-empty">No sref codes yet — drag images here or add in the detail view.</div>
+      </div>
+      <div class="nav-pop-foot nav-pop-foot--end">
+        <button class="nav-pop-viewall" id="srefs-view-all" type="button">View all</button>
+      </div>
+    </div>
+
+    <div class="nav-pop nav-pop--filters" id="filters-pop" role="menu" aria-label="Filters" hidden>
+      <div class="nav-pop-head">
+        <span class="nav-pop-title">Filters</span>
+        <button class="nav-pop-reset" id="clear-filters" type="button">Reset</button>
+      </div>
+      <div class="filter-block">
+        <div class="filter-block-label">Type</div>
+        <div class="filter-check-list" id="type-filter">
+          <label class="filter-check-row">
+            <input type="checkbox" class="filter-checkbox" data-value="image" />
+            <span>Images</span>
+          </label>
+          <label class="filter-check-row">
+            <input type="checkbox" class="filter-checkbox" data-value="video" />
+            <span>Videos</span>
+          </label>
+        </div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-block-label">Source</div>
+        <div class="filter-check-list" id="source-filter"></div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-block-label">Size</div>
+        <div class="filter-check-list" id="size-filter">
+          <label class="filter-check-row">
+            <input type="checkbox" class="filter-checkbox" data-value="s" />
+            <span>Small</span>
+          </label>
+          <label class="filter-check-row">
+            <input type="checkbox" class="filter-checkbox" data-value="m" />
+            <span>Medium</span>
+          </label>
+          <label class="filter-check-row">
+            <input type="checkbox" class="filter-checkbox" data-value="l" />
+            <span>Large</span>
+          </label>
+        </div>
+      </div>
+      <div class="filter-block">
+        <div class="filter-block-label">Tags</div>
+        <div class="pill-row wrap" id="tags-filter"></div>
+        <div class="filter-empty" id="tags-empty">No tags yet — add them in the detail view.</div>
+      </div>
+    </div>
+
+  <main class="main" id="main">
+    <div class="library-browse" id="library-browse" hidden>
+      <header class="library-browse-header">
+        <nav class="library-breadcrumbs" aria-label="Breadcrumb">
+          <button type="button" class="library-crumb library-crumb--link" id="library-browse-back">Library</button>
+          <span class="library-crumb-sep" aria-hidden="true">/</span>
+          <span class="library-crumb library-crumb--current" id="library-browse-crumb">Collections</span>
+        </nav>
+        <div class="library-browse-title-wrap">
+          <h1 class="library-browse-title" id="library-browse-title">Collections</h1>
+          <span class="library-browse-count" id="library-browse-count">0</span>
+        </div>
+      </header>
+      <section class="library-browse-section" id="library-browse-pinned" hidden>
+        <div class="library-browse-section-label">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 5 3 3v2H7v-2l3-3-1-5Z"/><path d="M12 14v6" stroke-linecap="round"/></svg>
+          <span>PINNED</span>
+        </div>
+        <div class="library-browse-grid library-browse-grid--legacy" id="library-browse-pinned-row"></div>
+      </section>
+      <div class="library-browse-section-label" id="library-browse-all-label" hidden>ALL COLLECTIONS · 0</div>
+      <div class="library-browse-grid" id="library-browse-grid"></div>
+      <div class="library-browse-empty filter-empty" id="library-browse-empty" hidden>No collections yet. Select images, then “Add to collection”.</div>
+    </div>
+
+    <header class="collection-context" id="collection-context" hidden>
+      <h1 class="collection-context-title" id="collection-context-title" title="Click to rename" tabindex="0"></h1>
+    </header>
+
+    <div class="grid-wrap" id="grid-wrap">
+      <div class="grid" id="grid"></div>
+      <div class="empty-state" id="empty-state">
+        <div class="dropzone-illustration">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+        </div>
+        <h2 id="empty-title">Drop your images here</h2>
+        <p id="empty-sub">Drag files or whole folders anywhere in this window.<br/>Midjourney prompts are read automatically from filenames.</p>
+      </div>
+    </div>
+
+    <div class="drop-overlay" id="drop-overlay" hidden>
+      <div class="drop-overlay-card">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        <span>Drop to import</span>
+      </div>
+    </div>
+  </main>
+
+  <div class="detail-scrim" id="detail-scrim" hidden>
+    <div class="detail-view" role="dialog" aria-modal="true" id="detail-modal">
+      <header class="detail-toolbar">
+        <div class="detail-toolbar-left">
+          <button class="detail-toolbar-btn btn-icon" id="detail-back" aria-label="Back">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          <span class="detail-counter" id="detail-counter">1 / 1</span>
+        </div>
+        <div class="detail-toolbar-right">
+          <div class="detail-zoom">
+            <input type="range" class="detail-zoom-slider" id="detail-zoom" min="50" max="200" value="100" aria-label="Zoom" />
+            <span class="detail-zoom-value" id="detail-zoom-value">100%</span>
+          </div>
+          <button class="detail-toolbar-btn btn-icon" id="detail-fav" aria-label="Favorite">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+          </button>
+          <a class="detail-toolbar-btn btn-icon" id="detail-open" target="_blank" rel="noopener" aria-label="Open original">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </a>
+          <button class="detail-toolbar-btn btn-icon" id="detail-delete" aria-label="Delete">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>
+          <button class="detail-toolbar-btn detail-close-btn btn-icon" id="detail-close" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="detail-body">
+        <div class="detail-media-wrap">
+          <div class="detail-media-stage">
+            <div class="detail-media" id="detail-media"></div>
+          </div>
+          <nav class="detail-nav-bar" id="detail-nav-bar" aria-label="Image navigation" hidden>
+            <div class="detail-nav-actions">
+              <button type="button" class="detail-nav-btn" id="detail-prev" aria-label="Previous image">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </button>
+              <button type="button" class="detail-nav-btn" id="detail-next" aria-label="Next image">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+              </button>
+            </div>
+            <span class="detail-nav-label">to navigate</span>
+          </nav>
+        </div>
+
+        <aside class="detail-panel">
+          <div class="detail-panel-header">
+            <h2 class="detail-panel-title">Details</h2>
+            <button class="detail-info-btn btn-icon" id="detail-info" aria-label="File information" aria-expanded="false" aria-controls="detail-info-popover">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </button>
+            <div class="detail-info-popover" id="detail-info-popover" hidden>
+              <div class="meta-list" id="detail-meta"></div>
+            </div>
+          </div>
+
+          <div class="detail-panel-scroll">
+            <div class="detail-field">
+              <label class="field-label-plain" for="detail-name">Name</label>
+              <input class="text-input detail-name-input" id="detail-name" aria-label="Display name" />
+            </div>
+
+            <div class="detail-field">
+              <div class="field-label-plain">Colors</div>
+              <div class="detail-colors" id="detail-colors"></div>
+            </div>
+
+            <div class="detail-field detail-field-srefs">
+              <div class="field-label-inline">
+                <span id="detail-sref-header-icon" aria-hidden="true"></span>
+                <span>Sref</span>
+              </div>
+              <div class="detail-inline-field">
+                <div class="tag-editor tag-editor-input" id="sref-editor">
+                  <input class="tag-input mono" id="sref-input" placeholder="Add sref, press Enter" autocomplete="off" aria-label="Add sref" />
+                </div>
+                <div class="tag-suggest" id="sref-suggest" hidden></div>
+              </div>
+              <div class="detail-srefs" id="detail-srefs">
+                <div class="detail-empty" id="detail-srefs-empty">No sref yet</div>
+              </div>
+            </div>
+
+            <div class="detail-field detail-field-prompt">
+              <div class="field-label-row">
+                <div class="field-label-plain">Image Prompt</div>
+                <button type="button" class="detail-text-btn" id="copy-prompt">Copy</button>
+              </div>
+              <div class="prompt-box" id="detail-prompt" aria-label="Image prompt"></div>
+            </div>
+
+            <div class="detail-field detail-field-collections">
+              <div class="field-label-inline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+                <span>Collections</span>
+              </div>
+              <div class="detail-inline-field">
+                <div class="tag-editor tag-editor-input" id="collection-editor">
+                  <input class="tag-input" id="collection-input" placeholder="Add collection, press Enter" autocomplete="off" aria-label="Add collection" />
+                </div>
+                <div class="tag-suggest" id="collection-suggest" hidden></div>
+              </div>
+              <div class="detail-collections" id="detail-collections">
+                <div class="detail-empty" id="detail-collections-empty">No collections yet</div>
+              </div>
+            </div>
+
+            <div class="detail-field detail-field-tags">
+              <div class="field-label-inline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
+                <span>Tags</span>
+              </div>
+              <div class="tag-field">
+                <div class="tag-editor tag-editor-input" id="tag-editor">
+                  <input class="tag-input" id="tag-input" placeholder="Add tag, press Enter" autocomplete="off" />
+                </div>
+                <div class="tag-suggest" id="tag-suggest" hidden></div>
+              </div>
+              <div class="detail-tag-chips" id="detail-tag-chips"></div>
+              <button type="button" class="btn-auto-tag" id="detail-auto-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                Auto-tag
+              </button>
+            </div>
+
+            <div class="detail-field detail-field-similar">
+              <div class="field-label-plain">More like this</div>
+              <div class="similar-thumbs-scroll">
+                <div class="similar-thumbs" id="detail-similar"></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <div class="import-progress" id="import-progress" hidden>
+    <div class="progress-row">
+      <span id="progress-label">Importing…</span>
+      <span class="mono" id="progress-count"></span>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack"></div>
+
+  <div class="collect-menu" id="collect-menu" hidden></div>
+  <div class="collect-menu" id="sref-menu" hidden></div>
+  <div class="collection-context-menu" id="collection-context-menu" hidden role="menu" aria-label="Collection actions"></div>
+
+  <div class="prompt-scrim" id="prompt-scrim" hidden>
+    <div class="prompt-dialog" id="prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+      <h2 class="prompt-title" id="prompt-title"></h2>
+      <input class="prompt-input" id="prompt-input" type="text" autocomplete="off" />
+      <div class="prompt-actions">
+        <button class="prompt-btn" id="prompt-cancel" type="button">Cancel</button>
+        <button class="prompt-btn prompt-btn--primary" id="prompt-submit" type="button">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="selection-bar" id="selection-bar" hidden>
+    <span class="selection-count" id="selection-count">0 Selected</span>
+    <span class="selection-divider" aria-hidden="true"></span>
+    <div class="selection-actions">
+      <button class="selection-action" id="bulk-favorite" type="button" aria-label="Favorite">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+        <span class="selection-action-label">Favorite</span>
+      </button>
+      <button class="selection-action" id="bulk-tag" type="button" aria-label="Tag">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="0.6" fill="currentColor"/></svg>
+        <span class="selection-action-label">Tag</span>
+      </button>
+      <div class="collect-wrap">
+        <button class="selection-action" id="add-to-collection" type="button" aria-label="Collection">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          <span class="selection-action-label">Collection</span>
+        </button>
+      </div>
+      <button class="selection-action" id="bulk-sref" type="button" aria-label="Set --sref">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
+        <span class="selection-action-label">--sref</span>
+      </button>
+    </div>
+    <span class="selection-divider" aria-hidden="true"></span>
+    <div class="selection-trailing">
+      <button class="selection-action selection-action--danger" id="bulk-delete" type="button" aria-label="Remove">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+        <span class="selection-action-label">Remove</span>
+      </button>
+      <button class="selection-action" id="selection-clear" type="button" aria-label="Clear">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+        <span class="selection-action-label">Clear</span>
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js?v=65"></script>
+  <script type="module" src="logo-shader.js?v=1"></script>
+</body>
+</html>

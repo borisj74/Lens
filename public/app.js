@@ -1,5 +1,5 @@
 /* Lens v1 — local AI media library */
-window.__lensVer = 23;
+window.__lensVer = 24;
 
 const HUE_BUCKETS = [
   { key: 'red', hex: '#D64545', range: [345, 15] },
@@ -26,6 +26,7 @@ const state = {
   selection: new Set(),       // ids of selected cards
   activeCollection: null,     // collection id being viewed, or null
   activeSref: null,           // sref value being viewed, or null
+  collectionOrganize: false,  // selection mode on single collection page
   libraryView: null,          // null | 'collections' | 'srefs' — full-page browse from "View all"
   filters: { q: '', colors: new Set(), pickedColor: null, types: new Set(), sources: new Set(), sizes: new Set(), tags: new Set(), favOnly: false },
   sort: 'added-desc',
@@ -270,6 +271,7 @@ async function importFiles(fileList) {
   const fill = $('progress-fill');
   progress.hidden = false;
   let done = 0, added = 0, skipped = 0, failed = 0;
+  const importedIds = [];
 
   for (const file of files) {
     $('progress-label').textContent = `Importing ${file.name}`;
@@ -300,7 +302,7 @@ async function importFiles(fileList) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Import failed');
       if (json.skipped) skipped++;
-      else { state.items.unshift(json.item); added++; }
+      else { state.items.unshift(json.item); importedIds.push(json.item.id); added++; }
     } catch (err) {
       console.error('Import failed for', file.name, err);
       failed++;
@@ -312,9 +314,23 @@ async function importFiles(fileList) {
 
   progress.hidden = true;
   fill.style.width = '0%';
+
+  const activeCid = state.activeCollection && !state.libraryView ? state.activeCollection : null;
+  if (activeCid && importedIds.length) {
+    const c = state.collections.find((x) => x.id === activeCid);
+    if (c) {
+      const { collection: updated } = await apiCollection('PATCH', '/' + c.id, { addItemIds: importedIds }) || {};
+      if (updated) {
+        const idx = state.collections.findIndex((x) => x.id === c.id);
+        if (idx >= 0) state.collections[idx] = updated;
+      }
+    }
+  }
+
   render();
   if (added > 0) {
-    const parts = [`${added} added to library`];
+    const c = activeCid ? state.collections.find((x) => x.id === activeCid) : null;
+    const parts = [c ? `${added} added to “${c.name}”` : `${added} added to library`];
     if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
     if (failed) parts.push(`${failed} failed`);
     showSnack(state.items[0], parts.join(' · '));
@@ -556,6 +572,8 @@ function navListThumbHtml(members) {
   return `<span class="nav-list-thumb" style="background-image:url('${hero.thumbUrl}')" aria-hidden="true"></span>`;
 }
 
+const BROWSE_PREVIEW_MAX = 4;
+
 function navCollectionRowHtml(c) {
   const members = collectionMembers(c);
   const n = c.itemIds.length;
@@ -566,6 +584,70 @@ function navCollectionRowHtml(c) {
       <span class="nav-list-name collection-name" title="Double-click to rename">${esc(c.name)}</span>
       <span class="nav-list-count">${n}</span>
     </div>`;
+}
+
+function updateCollectionsAllRow(shown, hiddenCount) {
+  const allRow = $('collections-view-all');
+  const thumbWrap = $('collections-all-thumb');
+  const overlay = $('collections-all-overlay');
+  if (!allRow || !thumbWrap) return;
+
+  const thumbEl = thumbWrap.querySelector('.nav-list-thumb');
+  const previewSource = shown[BROWSE_PREVIEW_MAX] || shown[shown.length - 1];
+  const members = previewSource ? collectionMembers(previewSource) : [];
+  const hero = members[0];
+
+  if (thumbEl) {
+    if (hero) {
+      thumbEl.style.backgroundImage = `url('${hero.thumbUrl}')`;
+      thumbEl.classList.remove('nav-list-thumb--empty');
+    } else {
+      thumbEl.style.backgroundImage = '';
+      thumbEl.classList.add('nav-list-thumb--empty');
+    }
+  }
+
+  if (overlay) {
+    if (hiddenCount > 0) {
+      overlay.textContent = `+${hiddenCount}`;
+      overlay.hidden = false;
+    } else {
+      overlay.textContent = '';
+      overlay.hidden = true;
+    }
+  }
+}
+
+function updateSrefsAllRow(shown, hiddenCount) {
+  const allRow = $('srefs-view-all');
+  const thumbWrap = $('srefs-all-thumb');
+  const overlay = $('srefs-all-overlay');
+  if (!allRow || !thumbWrap) return;
+
+  const thumbEl = thumbWrap.querySelector('.nav-list-thumb');
+  const previewSource = shown[BROWSE_PREVIEW_MAX] || shown[shown.length - 1];
+  const members = previewSource ? srefMembers(previewSource) : [];
+  const hero = members[0];
+
+  if (thumbEl) {
+    if (hero) {
+      thumbEl.style.backgroundImage = `url('${hero.thumbUrl}')`;
+      thumbEl.classList.remove('nav-list-thumb--empty');
+    } else {
+      thumbEl.style.backgroundImage = '';
+      thumbEl.classList.add('nav-list-thumb--empty');
+    }
+  }
+
+  if (overlay) {
+    if (hiddenCount > 0) {
+      overlay.textContent = `+${hiddenCount}`;
+      overlay.hidden = false;
+    } else {
+      overlay.textContent = '';
+      overlay.hidden = true;
+    }
+  }
 }
 
 function navSrefRowHtml(g) {
@@ -580,13 +662,13 @@ function navSrefRowHtml(g) {
     </div>`;
 }
 
-const EMPTY_COLLECTION_FOLDER_SVG = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M2 10h20"/></svg>';
-const BROWSE_NEW_PLUS_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#EEEEEE" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+const BROWSE_NEW_PLUS_SVG = '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M10 4V16M4 10H16" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const EMPTY_COLLECTION_SPINNER_SVG = '<svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="11" cy="11" r="9" stroke="#D9D9D9" stroke-width="2.5"/><path d="M11 2a9 9 0 0 1 9 9" stroke="#9B9B9B" stroke-width="2.5" stroke-linecap="round"/></svg>';
 
 function browseCoverHtml(members) {
   const hero = members[0];
   if (!hero) {
-    return `<div class="browse-card-cover browse-card-cover--empty">${EMPTY_COLLECTION_FOLDER_SVG}</div>`;
+    return `<div class="browse-card-cover browse-card-cover--empty">${EMPTY_COLLECTION_SPINNER_SVG}</div>`;
   }
   return `<div class="browse-card-cover"><img src="${hero.thumbUrl}" alt="" loading="lazy" draggable="false" /></div>`;
 }
@@ -666,26 +748,27 @@ function syncNavCollActiveStates() {
 
 function renderCollections() {
   const list = $('collections-list');
+  const allRow = $('collections-view-all');
   const q = ($('collections-search')?.value || '').trim().toLowerCase();
   const shown = sortList(
     q ? state.collections.filter((c) => c.name.toLowerCase().includes(q)) : state.collections,
     { date: (c) => c.createdAt || 0, name: (c) => c.name, orderSource: state.collections },
   );
-  const pinned = shown.filter((c) => c.pinned);
-  const unpinned = shown.filter((c) => !c.pinned);
+  const isSearching = Boolean(q);
+  const preview = isSearching ? shown : shown.slice(0, BROWSE_PREVIEW_MAX);
+  const hiddenCount = isSearching ? 0 : Math.max(0, shown.length - BROWSE_PREVIEW_MAX);
 
-  const pinnedWrap = $('collections-pinned');
-  const pinnedRow = $('collections-pinned-row');
-  if (pinnedRow) pinnedRow.innerHTML = pinned.map(navCollectionRowHtml).join('');
-  if (pinnedWrap) pinnedWrap.hidden = pinned.length === 0;
+  list.innerHTML = preview.map(navCollectionRowHtml).join('');
 
-  list.innerHTML = unpinned.map(navCollectionRowHtml).join('');
+  if (allRow) {
+    const showAllRow = !isSearching && shown.length > 0;
+    allRow.hidden = !showAllRow;
+    if (showAllRow) updateCollectionsAllRow(shown, hiddenCount);
+  }
 
   const total = state.collections.length;
   const badge = $('collections-count-badge');
-  const allCount = $('collections-all-count');
   if (badge) badge.textContent = String(total);
-  if (allCount) allCount.textContent = String(total);
   $('collections-empty').hidden = shown.length > 0;
 }
 
@@ -699,26 +782,27 @@ function srefMembers(g) {
 
 function renderSrefs() {
   const list = $('srefs-list');
+  const allRow = $('srefs-view-all');
   const q = ($('srefs-search')?.value || '').trim().toLowerCase();
   const shown = sortList(
     q ? state.srefGroups.filter((g) => g.name.toLowerCase().includes(q)) : state.srefGroups,
     { date: (g) => g.createdAt || 0, name: (g) => g.name },
   );
-  const pinned = shown.filter((g) => g.pinned);
-  const unpinned = shown.filter((g) => !g.pinned);
+  const isSearching = Boolean(q);
+  const preview = isSearching ? shown : shown.slice(0, BROWSE_PREVIEW_MAX);
+  const hiddenCount = isSearching ? 0 : Math.max(0, shown.length - BROWSE_PREVIEW_MAX);
 
-  const pinnedWrap = $('srefs-pinned');
-  const pinnedRow = $('srefs-pinned-row');
-  if (pinnedRow) pinnedRow.innerHTML = pinned.map(navSrefRowHtml).join('');
-  if (pinnedWrap) pinnedWrap.hidden = pinned.length === 0;
+  list.innerHTML = preview.map(navSrefRowHtml).join('');
 
-  list.innerHTML = unpinned.map(navSrefRowHtml).join('');
+  if (allRow) {
+    const showAllRow = !isSearching && shown.length > 0;
+    allRow.hidden = !showAllRow;
+    if (showAllRow) updateSrefsAllRow(shown, hiddenCount);
+  }
 
   const total = state.srefGroups.length;
   const badge = $('srefs-count-badge');
-  const allCount = $('srefs-all-count');
   if (badge) badge.textContent = String(total);
-  if (allCount) allCount.textContent = String(total);
   $('srefs-empty').hidden = shown.length > 0;
 }
 
@@ -748,6 +832,7 @@ function openLibraryBrowse(view) {
   if (search) search.value = '';
   state.activeCollection = null;
   state.activeSref = null;
+  state.collectionOrganize = false;
   state.filters.favOnly = false;
   state.libraryView = view;
   closeNavPops();
@@ -768,30 +853,56 @@ function renderCollectionContext() {
   const show = Boolean(c) && !state.libraryView;
 
   ctx.hidden = !show;
-  if (gridWrap) gridWrap.classList.toggle('grid-wrap--collection', show);
+  if (!show) {
+    state.collectionOrganize = false;
+    if (gridWrap) {
+      gridWrap.classList.remove('grid-wrap--collection', 'grid-wrap--organizing');
+    }
+    return;
+  }
 
-  if (!show) return;
+  if (gridWrap) {
+    gridWrap.classList.add('grid-wrap--collection');
+    gridWrap.classList.toggle('grid-wrap--organizing', state.collectionOrganize);
+  }
 
   const titleEl = $('collection-context-title');
+  const actions = $('collection-context-actions');
+  const isRenaming = Boolean(titleEl?.querySelector('.collection-name-input'));
+  if (actions) actions.hidden = isRenaming;
+
   const label = c.name;
-  if (titleEl && !titleEl.querySelector('.collection-name-input')) {
+  if (titleEl && !isRenaming) {
     titleEl.textContent = label;
-    titleEl.setAttribute('aria-label', `Rename collection ${label}`);
-    titleEl.dataset.contextType = 'collection';
+    titleEl.setAttribute('aria-label', `Collection ${label}`);
   }
+
+  const organizeBtn = $('collection-action-organize');
+  if (organizeBtn) organizeBtn.setAttribute('aria-pressed', String(state.collectionOrganize));
 }
 
 function wireCollectionContext() {
-  const title = $('collection-context-title');
-  title?.addEventListener('click', (e) => {
-    if (e.target.closest('.collection-name-input')) return;
-    startContextHeaderRename();
+  $('collection-action-new')?.addEventListener('click', () => {
+    $('file-input')?.click();
   });
-  title?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      startContextHeaderRename();
+
+  $('collection-action-organize')?.addEventListener('click', () => {
+    state.collectionOrganize = !state.collectionOrganize;
+    if (!state.collectionOrganize) state.selection.clear();
+    render();
+  });
+
+  $('collection-action-more')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const cid = state.activeCollection;
+    if (!cid) return;
+    const btn = $('collection-action-more');
+    const menu = $('collection-context-menu');
+    if (!menu.hidden && browseContextTarget?.kind === 'collection' && browseContextTarget.id === cid) {
+      closeBrowseContextMenu();
+      return;
     }
+    openBrowseContextMenu({ kind: 'collection', id: cid }, 0, 0, btn, 'below');
   });
 }
 
@@ -815,6 +926,7 @@ function startCollectionContextRename() {
   titleBtn.appendChild(input);
   input.focus();
   input.select();
+  renderCollectionContext();
 
   let done = false;
   const commit = async () => {
@@ -925,8 +1037,10 @@ function moveCollectionsInSection(dragId, targetId, isPinned) {
 function openCollectionView(cid) {
   state.activeCollection = cid;
   state.activeSref = null;
+  state.collectionOrganize = false;
   state.filters.favOnly = false;
   state.libraryView = null;
+  state.selection.clear();
   $('main')?.scrollTo(0, 0);
   render();
 }
@@ -1059,7 +1173,7 @@ function closeBrowseContextMenu() {
   browseContextTarget = null;
 }
 
-function positionBrowseContextMenu(menu, x, y, anchorEl = null) {
+function positionBrowseContextMenu(menu, x, y, anchorEl = null, placement = 'right') {
   menu.hidden = false;
   menu.style.left = '0px';
   menu.style.top = '0px';
@@ -1070,10 +1184,15 @@ function positionBrowseContextMenu(menu, x, y, anchorEl = null) {
 
   if (anchorEl) {
     const rowRect = anchorEl.getBoundingClientRect();
-    left = rowRect.right + 6;
-    top = rowRect.top + (rowRect.height - rect.height) / 2;
-    if (left + rect.width > window.innerWidth - margin) {
-      left = rowRect.left - rect.width - 6;
+    if (placement === 'below') {
+      left = rowRect.left + (rowRect.width - rect.width) / 2;
+      top = rowRect.bottom + 6;
+    } else {
+      left = rowRect.right + 6;
+      top = rowRect.top;
+      if (left + rect.width > window.innerWidth - margin) {
+        left = rowRect.left - rect.width - 6;
+      }
     }
   }
 
@@ -1085,7 +1204,7 @@ function positionBrowseContextMenu(menu, x, y, anchorEl = null) {
   menu.style.top = `${top}px`;
 }
 
-function openBrowseContextMenu(target, x, y, anchorEl = null) {
+function openBrowseContextMenu(target, x, y, anchorEl = null, placement = 'right') {
   const menu = $('collection-context-menu');
   if (!menu) return;
   $('collect-menu').hidden = true;
@@ -1094,7 +1213,7 @@ function openBrowseContextMenu(target, x, y, anchorEl = null) {
   state.srefMenuAnchor = null;
   browseContextTarget = target;
   renderBrowseContextMenu();
-  positionBrowseContextMenu(menu, x, y, anchorEl);
+  positionBrowseContextMenu(menu, x, y, anchorEl, placement);
   menu.querySelector('[data-action="rename"]')?.focus();
 }
 
@@ -1133,7 +1252,7 @@ function wireCollectionContextMenu() {
     if (!pop) return;
     pop.addEventListener('contextmenu', (e) => {
       const row = e.target.closest('.nav-list-row');
-      if (!row) return;
+      if (!row || row.classList.contains('nav-list-row--all')) return;
       e.preventDefault();
       e.stopPropagation();
       const id = kind === 'collection' ? row.dataset.cid : row.dataset.gid;
@@ -1155,8 +1274,11 @@ function wireCollectionContextMenu() {
     if (target.kind === 'collection') {
       const cid = target.id;
       if (action === 'rename') {
-        const nameEl = findCollectionNameEl(cid);
-        if (nameEl) startCollectionRename(nameEl);
+        if (state.activeCollection === cid) startCollectionContextRename();
+        else {
+          const nameEl = findCollectionNameEl(cid);
+          if (nameEl) startCollectionRename(nameEl);
+        }
         return;
       }
       if (action === 'pin') {
@@ -1359,6 +1481,11 @@ function renderSelectionBar() {
   const n = state.selection.size;
   bar.hidden = n === 0;
   if (n) $('selection-count').textContent = `${n} Selected`;
+  const inCollection = Boolean(state.activeCollection) && !state.libraryView;
+  const bulkDeleteBtn = $('bulk-delete');
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.setAttribute('aria-label', inCollection ? 'Remove from collection' : 'Delete from library');
+  }
   positionToastStack();
 }
 
@@ -2322,8 +2449,8 @@ function wire() {
     }
     const card = e.target.closest('.card');
     if (!card) return;
-    // while selecting, a plain click toggles selection instead of opening detail
-    if (state.selection.size > 0 || e.metaKey || e.shiftKey) {
+    // while selecting or organizing, a plain click toggles selection instead of opening detail
+    if (state.collectionOrganize || state.selection.size > 0 || e.metaKey || e.shiftKey) {
       toggleSelect(card.dataset.id);
       return;
     }
@@ -2927,7 +3054,31 @@ async function bulkSetSref() {
   toast(val ? `--sref set on ${countLabel(items.length)}` : `--sref cleared on ${countLabel(items.length)}`, 'success', items[0].thumbUrl);
 }
 
+async function bulkRemoveFromCollection() {
+  const cid = state.activeCollection;
+  const c = state.collections.find((x) => x.id === cid);
+  const ids = [...state.selection];
+  if (!c || !ids.length) return;
+  const n = ids.length;
+  if (!confirm(`Remove ${countLabel(n)} from “${c.name}”? The images stay in your library.`)) return;
+  const thumbUrl = state.items.find((it) => ids.includes(it.id))?.thumbUrl ?? null;
+  const { collection: updated } = await apiCollection('PATCH', '/' + cid, { removeItemIds: ids }) || {};
+  if (updated) {
+    const idx = state.collections.findIndex((x) => x.id === cid);
+    if (idx >= 0) state.collections[idx] = updated;
+    ids.forEach((id) => state.selection.delete(id));
+    render();
+    toast(`${countLabel(n)} removed from collection`, 'success', thumbUrl);
+  } else {
+    toast('Could not remove from collection', 'error', thumbUrl);
+  }
+}
+
 async function bulkDelete() {
+  if (state.activeCollection && !state.libraryView) {
+    await bulkRemoveFromCollection();
+    return;
+  }
   const items = selectedItems();
   if (!items.length) return;
   const n = items.length;
@@ -3220,8 +3371,7 @@ function wireCollections() {
     render();
     renderCollections();
     const item = $('library-browse-grid')?.querySelector(`[data-cid="${collection.id}"] .collection-name`)
-      || $('collections-list').querySelector(`[data-cid="${collection.id}"] .collection-name`)
-      || $('collections-pinned-row')?.querySelector(`[data-cid="${collection.id}"] .collection-name`);
+      || $('collections-list')?.querySelector(`[data-cid="${collection.id}"] .collection-name`);
     if (item) item.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   });
 
@@ -3372,7 +3522,7 @@ function wireSrefs() {
     renderSrefs();
     const nameEl = $('library-browse-grid')?.querySelector(`[data-gid="${group.id}"] .sref-name`)
       || $('srefs-list').querySelector(`[data-gid="${group.id}"] .sref-name`)
-      || $('srefs-pinned-row')?.querySelector(`[data-gid="${group.id}"] .sref-name`);
+      || $('srefs-list')?.querySelector(`[data-gid="${group.id}"] .sref-name`);
     if (nameEl) nameEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
   });
 

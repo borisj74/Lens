@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=73" />
+  <link rel="stylesheet" href="style.css?v=74" />
 </head>
 <body>
   <header class="topnav" id="topnav">
@@ -114,7 +114,7 @@
       </div>
     </header>
 
-    <div class="nav-pop nav-pop--library" id="collections-pop" role="menu" aria-label="Collections" hidden>
+    <div class="nav-pop nav-pop--library nav-pop--browse" id="collections-pop" role="menu" aria-label="Collections" hidden>
       <div class="nav-pop-head">
         <span class="nav-pop-title">Collections</span>
         <span class="nav-pop-count-badge" id="collections-count-badge">0</span>
@@ -127,25 +127,22 @@
         <input id="collections-search" type="text" placeholder="Search collections" autocomplete="off" aria-label="Search collections" />
       </div>
       <div class="nav-pop-body nav-pop-body--scroll" id="collections-body">
-        <section class="nav-pop-section" id="collections-pinned" hidden>
-          <div class="nav-pop-section-label">PINNED</div>
-          <div class="nav-pop-list" id="collections-pinned-row"></div>
-        </section>
-        <section class="nav-pop-section">
-          <div class="nav-pop-section-label nav-pop-section-label--all">
-            <span>ALL</span>
-            <span class="nav-pop-section-total" id="collections-all-count">0</span>
-          </div>
-          <div class="nav-pop-list" id="collections-list"></div>
-        </section>
+        <div class="nav-pop-list" id="collections-list"></div>
+        <button type="button" class="nav-list-row nav-list-row--all" id="collections-view-all" hidden>
+          <span class="nav-list-thumb-stack" id="collections-all-thumb" aria-hidden="true">
+            <span class="nav-list-thumb"></span>
+            <span class="nav-list-thumb-overlay" id="collections-all-overlay" hidden></span>
+          </span>
+          <span class="nav-list-all-label">
+            <span>All collections</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </button>
         <div class="nav-pop-empty filter-empty" id="collections-empty">No collections yet. Select images, then “Add to collection”.</div>
-      </div>
-      <div class="nav-pop-foot nav-pop-foot--end">
-        <button class="nav-pop-viewall" id="collections-view-all" type="button">View all</button>
       </div>
     </div>
 
-    <div class="nav-pop nav-pop--library" id="srefs-pop" role="menu" aria-label="Srefs" hidden>
+    <div class="nav-pop nav-pop--library nav-pop--browse" id="srefs-pop" role="menu" aria-label="Srefs" hidden>
       <div class="nav-pop-head">
         <span class="nav-pop-title">Srefs</span>
         <span class="nav-pop-count-badge" id="srefs-count-badge">0</span>
@@ -158,21 +155,18 @@
         <input id="srefs-search" type="text" placeholder="Search srefs" autocomplete="off" aria-label="Search srefs" />
       </div>
       <div class="nav-pop-body nav-pop-body--scroll" id="srefs-body">
-        <section class="nav-pop-section" id="srefs-pinned" hidden>
-          <div class="nav-pop-section-label">PINNED</div>
-          <div class="nav-pop-list" id="srefs-pinned-row"></div>
-        </section>
-        <section class="nav-pop-section">
-          <div class="nav-pop-section-label nav-pop-section-label--all">
-            <span>ALL</span>
-            <span class="nav-pop-section-total" id="srefs-all-count">0</span>
-          </div>
-          <div class="nav-pop-list" id="srefs-list"></div>
-        </section>
+        <div class="nav-pop-list" id="srefs-list"></div>
+        <button type="button" class="nav-list-row nav-list-row--all" id="srefs-view-all" hidden>
+          <span class="nav-list-thumb-stack" id="srefs-all-thumb" aria-hidden="true">
+            <span class="nav-list-thumb"></span>
+            <span class="nav-list-thumb-overlay" id="srefs-all-overlay" hidden></span>
+          </span>
+          <span class="nav-list-all-label">
+            <span>All srefs</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          </span>
+        </button>
         <div class="nav-pop-empty filter-empty" id="srefs-empty">No sref codes yet — drag images here or add in the detail view.</div>
-      </div>
-      <div class="nav-pop-foot nav-pop-foot--end">
-        <button class="nav-pop-viewall" id="srefs-view-all" type="button">View all</button>
       </div>
     </div>
 
@@ -248,7 +242,27 @@
     </div>
 
     <header class="collection-context" id="collection-context" hidden>
-      <h1 class="collection-context-title" id="collection-context-title" title="Click to rename" tabindex="0"></h1>
+      <h1 class="collection-context-title" id="collection-context-title"></h1>
+      <div class="collection-context-actions" id="collection-context-actions">
+        <button type="button" class="collection-context-action" id="collection-action-new" aria-label="New">
+          <span class="collection-context-action-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          </span>
+          <span class="collection-context-action-label">New</span>
+        </button>
+        <button type="button" class="collection-context-action" id="collection-action-organize" aria-label="Organize" aria-pressed="false">
+          <span class="collection-context-action-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="1"/><rect width="8" height="8" x="13" y="13" rx="1"/></svg>
+          </span>
+          <span class="collection-context-action-label">Organize</span>
+        </button>
+        <button type="button" class="collection-context-action" id="collection-action-more" aria-label="More" aria-haspopup="menu">
+          <span class="collection-context-action-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          </span>
+          <span class="collection-context-action-label">More</span>
+        </button>
+      </div>
     </header>
 
     <div class="grid-wrap" id="grid-wrap">
@@ -448,7 +462,7 @@
       </button>
       <div class="collect-wrap">
         <button class="selection-action" id="add-to-collection" type="button" aria-label="Collection">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          <svg width="20" height="20" viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="10" height="22.5" x="3.75" y="3.75" rx="1"/><path d="M8.75 3.75v22.5"/><path d="M25.5 23.625c0.25 0.625-0.125 1.375-0.75 1.625l-2.375 0.875c-0.625 0.25-1.375-0.125-1.625-0.75L13.875 6.375c-0.25-0.625 0.125-1.375 0.75-1.625l2.375-0.875c0.625-0.25 1.375 0.125 1.625 0.75Z"/></svg>
           <span class="selection-action-label">Collection</span>
         </button>
       </div>
@@ -470,7 +484,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=65"></script>
+  <script src="app.js?v=66"></script>
   <script type="module" src="logo-shader.js?v=1"></script>
 </body>
 </html>

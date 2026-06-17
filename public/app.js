@@ -1,5 +1,5 @@
 /* Lens v1 — local AI media library */
-window.__lensVer = 24;
+window.__lensVer = 25;
 
 const HUE_BUCKETS = [
   { key: 'red', hex: '#D64545', range: [345, 15] },
@@ -26,6 +26,7 @@ const state = {
   selection: new Set(),       // ids of selected cards
   activeCollection: null,     // collection id being viewed, or null
   activeSref: null,           // sref value being viewed, or null
+  cloud: false,               // true when the server stores media in Vercel Blob
   collectionOrganize: false,  // selection mode on single collection page
   libraryView: null,          // null | 'collections' | 'srefs' — full-page browse from "View all"
   filters: { q: '', colors: new Set(), pickedColor: null, types: new Set(), sources: new Set(), sizes: new Set(), tags: new Set(), favOnly: false },
@@ -261,6 +262,64 @@ function mediaType(file) {
   return null;
 }
 
+// Lazily pull the Vercel Blob browser client (only needed in cloud mode).
+let _blobClientPromise = null;
+function loadBlobClient() {
+  if (!_blobClientPromise) {
+    _blobClientPromise = import('https://esm.sh/@vercel/blob@2/client');
+  }
+  return _blobClientPromise;
+}
+
+async function sha256Hex(file) {
+  const buf = await file.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Local server: stream the file through the API to disk.
+async function importViaServer(file, metaObj, thumbBlob) {
+  const form = new FormData();
+  form.append('meta', JSON.stringify(metaObj));
+  form.append('file', file, file.name);
+  if (thumbBlob) form.append('thumb', thumbBlob, 'thumb.webp');
+  const res = await fetch('/api/import', { method: 'POST', body: form });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Import failed');
+  return json;
+}
+
+// Cloud: upload bytes straight to Vercel Blob (bypassing the 4.5 MB function
+// body limit), then record the metadata + resulting URLs via the API.
+async function importViaBlob(file, metaObj, thumbBlob) {
+  const { upload } = await loadBlobClient();
+  const base = crypto.randomUUID();
+  const ext = metaObj.ext || 'bin';
+  const fileRes = await upload(`originals/${base}.${ext}`, file, {
+    access: 'public',
+    handleUploadUrl: '/api/blob-upload',
+    contentType: file.type || undefined,
+  });
+  let thumbUrl = fileRes.url;
+  if (thumbBlob) {
+    const thumbRes = await upload(`thumbs/${base}.webp`, thumbBlob, {
+      access: 'public',
+      handleUploadUrl: '/api/blob-upload',
+      contentType: 'image/webp',
+    });
+    thumbUrl = thumbRes.url;
+  }
+  const hash = await sha256Hex(file);
+  const res = await fetch('/api/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ meta: metaObj, fileUrl: fileRes.url, thumbUrl, hash, bytes: file.size }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || 'Import failed');
+  return json;
+}
+
 async function importFiles(fileList) {
   const files = [...fileList].filter((f) => mediaType(f) && !f.name.startsWith('.'));
   if (!files.length) {
@@ -281,8 +340,7 @@ async function importFiles(fileList) {
       const parsed = parseFilename(file.name);
       const meta = type === 'image' ? await loadImageMeta(file) : await loadVideoMeta(file);
 
-      const form = new FormData();
-      form.append('meta', JSON.stringify({
+      const metaObj = {
         type,
         prompt: parsed.prompt,
         mjId: parsed.mjId,
@@ -294,13 +352,13 @@ async function importFiles(fileList) {
         hueBuckets: meta.hueBuckets,
         fileMtime: file.lastModified,
         displayName: file.name,
-      }));
-      form.append('file', file, file.name);
-      if (meta.thumb) form.append('thumb', meta.thumb, 'thumb.webp');
+        originalName: file.name,
+        ext: (file.name.match(/\.([^.]+)$/) || [, ''])[1].toLowerCase(),
+      };
 
-      const res = await fetch('/api/import', { method: 'POST', body: form });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Import failed');
+      const json = state.cloud
+        ? await importViaBlob(file, metaObj, meta.thumb)
+        : await importViaServer(file, metaObj, meta.thumb);
       if (json.skipped) skipped++;
       else { state.items.unshift(json.item); importedIds.push(json.item.id); added++; }
     } catch (err) {
@@ -3539,6 +3597,7 @@ async function boot() {
     state.items = json.items || [];
     state.collections = json.collections || [];
     state.srefGroups = json.srefGroups || [];
+    state.cloud = Boolean(json.cloud);
   } catch (err) {
     toast('Cannot reach the Lens server', 'error');
   }

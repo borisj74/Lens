@@ -1,15 +1,26 @@
-import {
-  ShaderMount,
-  meshGradientFragmentShader,
-  getShaderColorFromString,
-} from '/vendor/@paper-design/shaders/index.js';
+// Color filter button — Paper "Mesh Gradient" shader (artboard B99-0).
+// Loaded as a module script (see index.html). Uses the same CDN pattern as logo-shader.js
+// so Vercel does not compile this file to CommonJS.
 
-/** Paper artboard B99-0 — Mesh Gradient */
+const SHADERS_CDN = 'https://esm.sh/@paper-design/shaders@0.0.76';
 const MESH_COLORS = ['#4694F6', '#FEBEFF', '#72FF8A', '#FF6A83', '#FFEC2F', '#9F9FFF'];
 
-export function mountColorBtnShader(container) {
+async function initColorBtnShader() {
+  const container = document.getElementById('color-btn-shader');
+  if (!container || container.dataset.shaderMounted) return;
+
+  let shaders;
+  try {
+    shaders = await import(SHADERS_CDN);
+  } catch (err) {
+    console.warn('[color-btn-shader] Could not load Paper shaders from CDN:', err);
+    return;
+  }
+
+  const { ShaderMount, meshGradientFragmentShader, getShaderColorFromString } = shaders;
   const colors = MESH_COLORS.map(getShaderColorFromString);
-  return new ShaderMount(
+
+  new ShaderMount(
     container,
     meshGradientFragmentShader,
     {
@@ -34,4 +45,8 @@ export function mountColorBtnShader(container) {
     81204.58,
     2,
   );
+
+  container.dataset.shaderMounted = 'true';
 }
+
+initColorBtnShader();

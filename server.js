@@ -243,6 +243,13 @@ function backfillPromptsFromMetadata() {
   if (updated) console.log(`Recovered full prompts from metadata for ${updated} item(s)`);
 }
 
+let lastAddedAt = 0;
+function nextAddedAt() {
+  const now = Date.now();
+  lastAddedAt = now > lastAddedAt ? now : lastAddedAt + 1;
+  return lastAddedAt;
+}
+
 function buildItem({ id, hash, meta, fileUrl, thumbUrl, bytes }) {
   const ext = (meta.ext || (path.extname(meta.displayName || meta.originalName || '') || '.bin').slice(1) || 'bin')
     .toLowerCase().replace(/^\./, '');
@@ -265,7 +272,7 @@ function buildItem({ id, hash, meta, fileUrl, thumbUrl, bytes }) {
     tags: [],
     sref: '',
     favorite: false,
-    addedAt: Date.now(),
+    addedAt: nextAddedAt(),
     fileMtime: meta.fileMtime || null,
     fileUrl,
     thumbUrl: thumbUrl || fileUrl,

@@ -475,7 +475,11 @@ async function importFiles(fileList) {
         ? await importViaBlob(file, metaObj, meta.thumb)
         : await importViaServer(file, metaObj, meta.thumb);
       if (json.skipped) skipped++;
-      else { state.items.unshift(json.item); importedIds.push(json.item.id); added++; }
+      else {
+        state.items.unshift(json.item);
+        importedIds.push(json.item.id);
+        added++;
+      }
     } catch (err) {
       console.error('Import failed for', file.name, err);
       failed++;
@@ -500,8 +504,14 @@ async function importFiles(fileList) {
     }
   }
 
+  if (added > 0) {
+    state.sort = 'added-desc';
+    syncSortUI();
+  }
+
   render();
   if (added > 0) {
+    $('grid-wrap')?.scrollTo({ top: 0, behavior: 'smooth' });
     const c = activeCid ? state.collections.find((x) => x.id === activeCid) : null;
     const parts = [c ? `${added} added to “${c.name}”` : `${added} added to library`];
     if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
@@ -559,7 +569,14 @@ function sortList(list, { date = () => 0, name = (x) => String(x), orderSource =
   const mul = dir === 'asc' ? 1 : -1;
   const out = list.slice();
   out.sort((a, b) => {
-    if (key === 'added') return (date(a) - date(b)) * mul;
+    if (key === 'added') {
+      const diff = (date(a) - date(b)) * mul;
+      if (diff !== 0) return diff;
+      // Same timestamp (batch imports): preserve library order (index 0 = newest).
+      const ai = state.items.findIndex((it) => it.id === a.id);
+      const bi = state.items.findIndex((it) => it.id === b.id);
+      return dir === 'desc' ? ai - bi : bi - ai;
+    }
     return name(a).localeCompare(name(b), undefined, { sensitivity: 'base' }) * mul;
   });
   return out;
@@ -624,6 +641,64 @@ function applyFilters() {
     date: (it) => it.addedAt || 0,
     name: (it) => it.displayName,
   });
+}
+
+const MASONRY_GAP = 24;
+let masonryFrame = 0;
+
+function masonryColumnCount(grid) {
+  const colWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--lens-col')) || 240;
+  return Math.max(1, Math.floor((grid.clientWidth + MASONRY_GAP) / (colWidth + MASONRY_GAP)));
+}
+
+/** Shortest-column masonry — newest items (first in list) spread across the top row. */
+function layoutMasonryGrid() {
+  masonryFrame = 0;
+  const grid = $('grid');
+  if (!grid || state.libraryView) return;
+
+  const cards = [...grid.querySelectorAll('.card')];
+  if (!cards.length) {
+    grid.style.height = '';
+    return;
+  }
+
+  const cols = masonryColumnCount(grid);
+  const cardWidth = (grid.clientWidth - MASONRY_GAP * (cols - 1)) / cols;
+  const colHeights = new Array(cols).fill(0);
+
+  cards.forEach((card) => {
+    card.style.width = `${cardWidth}px`;
+    const col = colHeights.indexOf(Math.min(...colHeights));
+    card.style.left = `${col * (cardWidth + MASONRY_GAP)}px`;
+    card.style.top = `${colHeights[col]}px`;
+    colHeights[col] += card.offsetHeight + MASONRY_GAP;
+  });
+
+  const maxH = Math.max(...colHeights);
+  grid.style.height = maxH > MASONRY_GAP ? `${maxH - MASONRY_GAP}px` : '0';
+}
+
+function scheduleMasonryLayout() {
+  if (state.libraryView) return;
+  cancelAnimationFrame(masonryFrame);
+  masonryFrame = requestAnimationFrame(() => {
+    masonryFrame = requestAnimationFrame(layoutMasonryGrid);
+  });
+}
+
+function wireMasonryGrid() {
+  const grid = $('grid');
+  if (!grid) return;
+
+  grid.addEventListener('load', (e) => {
+    if (e.target.matches('img, video')) scheduleMasonryLayout();
+  }, true);
+
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => scheduleMasonryLayout()).observe(grid);
+  }
+  window.addEventListener('resize', scheduleMasonryLayout);
 }
 
 /* ---------- Rendering ---------- */
@@ -695,6 +770,8 @@ function render() {
       renderSimilarThumbs(it);
     }
   }
+
+  scheduleMasonryLayout();
 }
 
 function collectionFolderSvg(isOpen) {
@@ -2256,6 +2333,7 @@ function wire() {
 
   wireNavPopovers();
   wireSizeSlider();
+  wireMasonryGrid();
 
   // Search — live results + recent-searches dropdown (Cosmos-style)
   const searchInput = $('search');
@@ -3420,6 +3498,7 @@ function wireSizeSlider() {
   slider.addEventListener('input', () => {
     apply(Number(slider.value));
     localStorage.setItem('lens.thumbSize', slider.value);
+    scheduleMasonryLayout();
   });
 }
 
@@ -3697,21 +3776,8 @@ function wireSrefs() {
 
 /* ---------- Boot ---------- */
 
-async function initColorBtnShader() {
-  const container = $('color-btn-shader');
-  if (!container || container.dataset.shaderMounted) return;
-  try {
-    const { mountColorBtnShader } = await import('./color-btn-shader.js');
-    mountColorBtnShader(container);
-    container.dataset.shaderMounted = 'true';
-  } catch (err) {
-    console.warn('Color button shader unavailable', err);
-  }
-}
-
 async function boot() {
   wire();
-  initColorBtnShader();
   try {
     const res = await fetch('/api/items');
     const json = await res.json();

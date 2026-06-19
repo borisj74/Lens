@@ -1184,16 +1184,15 @@ body.dragging-cards .card.drag-batch.drag-source { opacity: 0.65; }
 }
 
 .grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--lens-col, 240px), 1fr));
-  gap: 24px;
-  align-items: start;
+  position: relative;
+  width: 100%;
 }
 
 .card {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   display: block;
-  width: 100%;
   background: var(--bg-raised);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;

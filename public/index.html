@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=77" />
+  <link rel="stylesheet" href="style.css?v=91" />
 </head>
 <body>
   <header class="topnav" id="topnav">
@@ -54,16 +54,7 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
         <button class="color-btn" id="color-btn" aria-label="Filter by color" aria-expanded="false" title="Filter by color">
-          <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <ellipse cx="6.796" cy="17.118" rx="1.952" ry="1.941" fill="#4694F6"/>
-            <ellipse cx="17.205" cy="17.231" rx="1.952" ry="1.941" fill="#C877CB"/>
-            <ellipse cx="6.796" cy="6.882" rx="1.952" ry="1.941" fill="#81B386"/>
-            <ellipse cx="17.205" cy="6.769" rx="1.952" ry="1.941" fill="#9C6030"/>
-            <ellipse cx="19.548" cy="11.686" rx="1.952" ry="1.941" fill="#A0213E"/>
-            <ellipse cx="12.001" cy="4.441" rx="1.952" ry="1.941" fill="#EBB042"/>
-            <ellipse cx="4.452" cy="11.686" rx="1.952" ry="1.941" fill="#77CDD0"/>
-            <ellipse cx="12" cy="19.559" rx="1.952" ry="1.941" fill="#6951F5"/>
-          </svg>
+          <span class="color-btn-shader" id="color-btn-shader" aria-hidden="true"></span>
         </button>
         <div class="search-pop" id="search-pop" hidden></div>
         <div class="color-pop" id="color-pop" hidden>
@@ -89,7 +80,7 @@
       </div>
       <div class="topnav-right">
         <div class="active-chips" id="active-chips"></div>
-        <div class="size-control" title="Thumbnail size">
+        <div class="size-control" id="size-control" title="Thumbnail size">
           <svg class="size-control-icon" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
           <input type="range" class="size-slider" id="size-slider" min="0" max="100" value="50" aria-label="Thumbnail size" />
           <svg class="size-control-icon size-control-icon--lg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="8.5" height="8.5" rx="1.5"/><rect x="12.5" y="3" width="8.5" height="8.5" rx="1.5"/><rect x="3" y="12.5" width="8.5" height="8.5" rx="1.5"/><rect x="12.5" y="12.5" width="8.5" height="8.5" rx="1.5"/></svg>
@@ -208,11 +199,6 @@
             <span>Large</span>
           </label>
         </div>
-      </div>
-      <div class="filter-block">
-        <div class="filter-block-label">Tags</div>
-        <div class="pill-row wrap" id="tags-filter"></div>
-        <div class="filter-empty" id="tags-empty">No tags yet — add them in the detail view.</div>
       </div>
     </div>
 
@@ -356,16 +342,10 @@
             <div class="detail-field detail-field-srefs">
               <div class="field-label-inline">
                 <span id="detail-sref-header-icon" aria-hidden="true"></span>
-                <span>Sref</span>
-              </div>
-              <div class="detail-inline-field">
-                <div class="tag-editor tag-editor-input" id="sref-editor">
-                  <input class="tag-input mono" id="sref-input" placeholder="Add sref, press Enter" autocomplete="off" aria-label="Add sref" />
-                </div>
-                <div class="tag-suggest" id="sref-suggest" hidden></div>
+                <span>SREFs</span>
               </div>
               <div class="detail-srefs" id="detail-srefs">
-                <div class="detail-empty" id="detail-srefs-empty">No sref yet</div>
+                <div class="detail-empty" id="detail-srefs-empty">No SREFs yet</div>
               </div>
             </div>
 
@@ -456,20 +436,18 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
         <span class="selection-action-label">Favorite</span>
       </button>
-      <button class="selection-action" id="bulk-tag" type="button" aria-label="Tag">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r="0.6" fill="currentColor"/></svg>
-        <span class="selection-action-label">Tag</span>
-      </button>
       <div class="collect-wrap">
         <button class="selection-action" id="add-to-collection" type="button" aria-label="Collection">
           <svg width="20" height="20" viewBox="0 0 30 30" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="10" height="22.5" x="3.75" y="3.75" rx="1"/><path d="M8.75 3.75v22.5"/><path d="M25.5 23.625c0.25 0.625-0.125 1.375-0.75 1.625l-2.375 0.875c-0.625 0.25-1.375-0.125-1.625-0.75L13.875 6.375c-0.25-0.625 0.125-1.375 0.75-1.625l2.375-0.875c0.625-0.25 1.375 0.125 1.625 0.75Z"/></svg>
           <span class="selection-action-label">Collection</span>
         </button>
       </div>
-      <button class="selection-action" id="bulk-sref" type="button" aria-label="Set --sref">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
-        <span class="selection-action-label">--sref</span>
-      </button>
+      <div class="sref-wrap">
+        <button class="selection-action" id="bulk-sref" type="button" aria-label="Set --sref">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>
+          <span class="selection-action-label">--sref</span>
+        </button>
+      </div>
     </div>
     <span class="selection-divider" aria-hidden="true"></span>
     <div class="selection-trailing">
@@ -484,7 +462,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=67"></script>
+  <script src="app.js?v=88"></script>
   <script type="module" src="logo-shader.js?v=1"></script>
 </body>
 </html>

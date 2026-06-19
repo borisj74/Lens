@@ -1,5 +1,5 @@
 /* Lens v1 — local AI media library */
-window.__lensVer = 25;
+window.__lensVer = 28;
 
 const HUE_BUCKETS = [
   { key: 'red', hex: '#D64545', range: [345, 15] },
@@ -41,7 +41,6 @@ let suppressCollectionClick = false;
 let suppressSrefClick = false;
 let collectionClickTimer = null;
 let suppressCollectionNavClick = false;
-let suppressCollectionReorderClick = false;
 let srefClickTimer = null;
 let suppressSrefNavClick = false;
 
@@ -79,6 +78,122 @@ function parseFilename(name) {
   else if (/nano.?banana/i.test(base)) source = 'nanobanana';
   else if (/^(dalle|gpt|chatgpt|openai)/i.test(base)) source = 'gpt';
   return { prompt: '', mjId: null, variantIndex: null, source, ext };
+}
+
+// Midjourney embeds the full prompt in the PNG `Description` chunk — filenames
+// only carry a truncated slice. Local import reads this on the server; cloud
+// import must read it in the browser before upload.
+function promptFromDescription(desc) {
+  if (!desc) return '';
+  return String(desc).replace(/\s*Job ID:\s*[0-9a-f-]+\s*$/i, '').trim();
+}
+
+function bytesToLatin1(bytes, start = 0, end = bytes.length) {
+  let s = '';
+  for (let i = start; i < end; i++) s += String.fromCharCode(bytes[i]);
+  return s;
+}
+
+async function inflatePngText(bytes) {
+  if (!bytes?.length || typeof DecompressionStream === 'undefined') return '';
+  for (const fmt of ['deflate', 'deflate-raw']) {
+    try {
+      const out = await new Response(
+        new Blob([bytes]).stream().pipeThrough(new DecompressionStream(fmt))
+      ).arrayBuffer();
+      return new TextDecoder().decode(out);
+    } catch { /* try next format */ }
+  }
+  return '';
+}
+
+async function readPngDescriptionFromBuffer(data) {
+  try {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    if (bytes.length < 8 || bytes[0] !== 0x89 || bytes[1] !== 0x50) return null;
+    const texts = {};
+    let i = 8;
+    while (i + 8 <= bytes.length) {
+      const len = (bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3];
+      const type = bytesToLatin1(bytes, i + 4, i + 8);
+      const start = i + 8;
+      const end = start + len;
+      if (end > bytes.length) break;
+      const chunk = bytes.subarray(start, end);
+      if (type === 'tEXt') {
+        const nul = chunk.indexOf(0);
+        if (nul > -1) texts[bytesToLatin1(chunk, 0, nul)] = bytesToLatin1(chunk, nul + 1);
+      } else if (type === 'iTXt') {
+        const nul = chunk.indexOf(0);
+        if (nul > -1) {
+          const key = bytesToLatin1(chunk, 0, nul);
+          const compFlag = chunk[nul + 1];
+          let p = nul + 3;
+          const langEnd = chunk.indexOf(0, p); p = langEnd + 1;
+          const transEnd = chunk.indexOf(0, p); p = transEnd + 1;
+          const textBuf = chunk.subarray(p);
+          let val = '';
+          if (compFlag === 1) val = await inflatePngText(textBuf);
+          else val = new TextDecoder().decode(textBuf);
+          if (!texts[key]) texts[key] = val;
+        }
+      } else if (type === 'zTXt') {
+        const nul = chunk.indexOf(0);
+        if (nul > -1) {
+          const key = bytesToLatin1(chunk, 0, nul);
+          texts[key] = await inflatePngText(chunk.subarray(nul + 2));
+        }
+      }
+      if (type === 'IEND') break;
+      i = end + 4;
+    }
+    return texts.Description || texts.description || null;
+  } catch {
+    return null;
+  }
+}
+
+async function readPngDescriptionFromFile(file) {
+  const ext = (file.name.match(/\.([^.]+)$/) || [, ''])[1].toLowerCase();
+  if (ext !== 'png' && file.type !== 'image/png') return null;
+  return readPngDescriptionFromBuffer(await file.arrayBuffer());
+}
+
+async function readPngDescriptionFromUrl(url) {
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  return readPngDescriptionFromBuffer(await res.arrayBuffer());
+}
+
+async function resolveImportPrompt(file, parsed) {
+  let prompt = parsed.prompt || '';
+  const ext = (file.name.match(/\.([^.]+)$/) || [, parsed.ext || ''])[1].toLowerCase();
+  if (ext === 'png') {
+    const full = promptFromDescription(await readPngDescriptionFromFile(file));
+    if (full && full.length > prompt.length) prompt = full;
+  }
+  return prompt;
+}
+
+async function enrichItemPrompt(it) {
+  if (!it || it.type !== 'image' || it.ext !== 'png' || !it.fileUrl?.startsWith('http')) return it;
+  try {
+    const full = promptFromDescription(await readPngDescriptionFromUrl(it.fileUrl));
+    if (!full || full.length <= (it.prompt || '').length) return it;
+    const res = await fetch(`/api/items/${it.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: full }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.item) return it;
+    const idx = state.items.findIndex((x) => x.id === it.id);
+    if (idx >= 0) state.items[idx] = json.item;
+    return json.item;
+  } catch (err) {
+    console.warn('Prompt enrich failed', err);
+    return it;
+  }
 }
 
 /* ---------- Color analysis ---------- */
@@ -342,7 +457,7 @@ async function importFiles(fileList) {
 
       const metaObj = {
         type,
-        prompt: parsed.prompt,
+        prompt: await resolveImportPrompt(file, parsed),
         mjId: parsed.mjId,
         variantIndex: parsed.variantIndex,
         source: parsed.source,
@@ -520,6 +635,7 @@ function esc(s) {
 function render() {
   const browse = $('library-browse');
   const gridWrap = $('grid-wrap');
+  document.body.classList.toggle('is-library-browse', Boolean(state.libraryView));
   if (state.libraryView) {
     if (browse) browse.hidden = false;
     if (gridWrap) gridWrap.hidden = true;
@@ -744,12 +860,12 @@ function browseNewCollectionCardHtml() {
     </button>`;
 }
 
-function browseCollectionCardHtml(c, { reorderable = false } = {}) {
+function browseCollectionCardHtml(c) {
   const members = collectionMembers(c);
   const n = c.itemIds.length;
   const label = n === 1 ? '1 element' : `${n} elements`;
   return `
-    <div class="browse-card browse-card--collection${reorderable ? ' is-reorderable' : ''}" data-cid="${c.id}" data-active="${state.activeCollection === c.id}"${reorderable ? ' draggable="true"' : ''}>
+    <div class="browse-card browse-card--collection" data-cid="${c.id}" data-active="${state.activeCollection === c.id}">
       ${browseCoverHtml(members)}
       <div class="browse-card-meta">
         <span class="browse-card-title collection-name" title="Double-click to rename">${esc(c.name)}</span>
@@ -879,9 +995,18 @@ function updateNavChrome() {
   const srefTrigger = $('srefs-trigger');
   if (srefTrigger) srefTrigger.dataset.active = String(inBrowse ? state.libraryView === 'srefs' : Boolean(state.activeSref));
   const f = state.filters;
-  const filtersActive = f.types.size || f.sources.size || f.sizes.size || f.tags.size || f.pickedColor;
+  const filtersActive = f.types.size || f.sources.size || f.sizes.size || f.pickedColor;
   const filtTrigger = $('filters-trigger');
   if (filtTrigger) filtTrigger.dataset.active = String(Boolean(filtersActive));
+
+  const sizeControl = $('size-control');
+  const libraryBrowse = $('library-browse');
+  if (sizeControl) {
+    const hideOnBrowse = libraryBrowse ? !libraryBrowse.hidden : (
+      state.libraryView === 'collections' || state.libraryView === 'srefs'
+    );
+    sizeControl.hidden = hideOnBrowse;
+  }
 }
 
 function openLibraryBrowse(view) {
@@ -1064,32 +1189,17 @@ function startSrefContextRename() {
   input.addEventListener('blur', onBlur);
 }
 
-function moveCollectionInList(dragId, targetId, list) {
-  if (dragId === targetId) return false;
-  const fromIdx = list.findIndex((c) => c.id === dragId);
-  const toIdx = list.findIndex((c) => c.id === targetId);
-  if (fromIdx < 0 || toIdx < 0) return false;
-  const next = [...list];
-  const [moved] = next.splice(fromIdx, 1);
-  next.splice(toIdx, 0, moved);
-  state.collections = next;
-  return true;
+function collectionOrderIds() {
+  return sortList(state.collections, {
+    date: (c) => c.createdAt || 0,
+    name: (c) => c.name,
+    orderSource: state.collections,
+  }).map((c) => c.id);
 }
 
-function moveCollectionsInSection(dragId, targetId, isPinned) {
-  if (dragId === targetId) return false;
-  const pinned = state.collections.filter((c) => c.pinned);
-  const unpinned = state.collections.filter((c) => !c.pinned);
-  const section = isPinned ? pinned : unpinned;
-  const fromIdx = section.findIndex((c) => c.id === dragId);
-  const toIdx = section.findIndex((c) => c.id === targetId);
-  if (fromIdx < 0 || toIdx < 0) return false;
-  const [moved] = section.splice(fromIdx, 1);
-  section.splice(toIdx, 0, moved);
-  let pi = 0;
-  let ui = 0;
-  state.collections = state.collections.map((c) => (c.pinned ? pinned[pi++] : unpinned[ui++]));
-  return true;
+function applyCollectionOrder(ids) {
+  const byId = new Map(state.collections.map((c) => [c.id, c]));
+  state.collections = ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
 function openCollectionView(cid) {
@@ -1146,7 +1256,7 @@ function renderLibraryBrowse() {
     if (allLabel) allLabel.hidden = true;
     if (grid) {
       grid.innerHTML = browseNewCollectionCardHtml()
-        + sorted.map((c) => browseCollectionCardHtml(c, { reorderable: true })).join('');
+        + sorted.map((c) => browseCollectionCardHtml(c)).join('');
     }
     if (empty) {
       empty.hidden = true;
@@ -1396,7 +1506,7 @@ function wireLibraryBrowse() {
     if (!item) return;
 
     if (state.libraryView === 'collections' && collItem) {
-      if (suppressCollectionClick || suppressCollectionReorderClick) return;
+      if (suppressCollectionClick) return;
       const cid = collItem.dataset.cid;
       if (e.target.closest('.collection-pin')) {
         e.stopPropagation();
@@ -1465,73 +1575,6 @@ function wireLibraryBrowse() {
       startSrefRename(nameEl);
     }
   });
-
-  let collectionReorderDragId = null;
-
-  browse.addEventListener('dragstart', (e) => {
-    if (state.libraryView !== 'collections') return;
-    const card = e.target.closest('.browse-card--collection.is-reorderable');
-    if (!card || e.target.closest('button, input, textarea')) {
-      e.preventDefault();
-      return;
-    }
-    collectionReorderDragId = card.dataset.cid;
-    card.classList.add('is-collection-dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('application/x-lens-collection-reorder', collectionReorderDragId);
-  });
-
-  browse.addEventListener('dragend', (e) => {
-    e.target.closest('.browse-card--collection')?.classList.remove('is-collection-dragging');
-    browse.querySelectorAll('.browse-card.drop-target-reorder').forEach((el) => {
-      el.classList.remove('drop-target-reorder');
-    });
-    collectionReorderDragId = null;
-  });
-
-  const gridContainer = $('library-browse-grid');
-  if (gridContainer) {
-    gridContainer.addEventListener('dragover', (e) => {
-      if (!collectionReorderDragId || state.libraryView !== 'collections') return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      browse.querySelectorAll('.browse-card.drop-target-reorder').forEach((el) => {
-        el.classList.remove('drop-target-reorder');
-      });
-      const card = e.target.closest('.browse-card--collection.is-reorderable');
-      if (card && card.dataset.cid !== collectionReorderDragId) {
-        card.classList.add('drop-target-reorder');
-      }
-    });
-    gridContainer.addEventListener('dragleave', (e) => {
-      const card = e.target.closest('.browse-card--collection');
-      card?.classList.remove('drop-target-reorder');
-    });
-    gridContainer.addEventListener('drop', async (e) => {
-      if (!collectionReorderDragId || state.libraryView !== 'collections') return;
-      e.preventDefault();
-      const target = e.target.closest('.browse-card--collection.is-reorderable');
-      browse.querySelectorAll('.browse-card.drop-target-reorder').forEach((el) => {
-        el.classList.remove('drop-target-reorder');
-      });
-      if (!target || target.dataset.cid === collectionReorderDragId) return;
-      const sorted = sortList(state.collections, {
-        date: (c) => c.createdAt || 0,
-        name: (c) => c.name,
-        orderSource: state.collections,
-      });
-      if (!moveCollectionInList(collectionReorderDragId, target.dataset.cid, sorted)) return;
-      const json = await apiCollectionReorder(state.collections.map((c) => c.id));
-      if (!json) return;
-      if (json.collections) state.collections = json.collections;
-      state.sort = 'manual';
-      syncSortUI();
-      suppressCollectionReorderClick = true;
-      setTimeout(() => { suppressCollectionReorderClick = false; }, 300);
-      renderLibraryBrowse();
-      renderCollections();
-    });
-  }
 }
 
 function renderSelectionBar() {
@@ -1555,11 +1598,6 @@ function renderDynamicFilters() {
       <span>${esc(formatSourceLabel(s))}</span>
     </label>`).join('');
 
-  const tags = [...new Set(state.items.flatMap((i) => i.tags))].sort();
-  $('tags-filter').innerHTML = tags.map((t) =>
-    `<button class="pill${state.filters.tags.has(t) ? ' active' : ''}" data-value="${esc(t)}"><span>${esc(t)}</span></button>`).join('');
-  $('tags-empty').hidden = tags.length > 0;
-
   document.querySelectorAll('#type-filter .filter-checkbox').forEach((cb) => {
     cb.checked = state.filters.types.has(cb.dataset.value);
   });
@@ -1571,12 +1609,14 @@ function renderDynamicFilters() {
 function renderActiveChips() {
   const f = state.filters;
 
-  // picked color renders as one pill inside the search bar
+  // picked color replaces the search icon — 36px circle + dot per Paper spec
+  const searchBar = document.querySelector('.search-bar');
+  if (searchBar) searchBar.classList.toggle('search-bar--has-color', Boolean(f.pickedColor));
   $('search-color-tags').innerHTML = f.pickedColor ? `
-    <button class="search-color-tag" aria-label="Edit color filter">
+    <button type="button" class="search-color-tag" aria-label="Color filter — hover to clear">
       <span class="tag-dot" style="background:${esc(f.pickedColor)}" title="${esc(f.pickedColor)}"></span>
-      <span class="tag-close" role="button" aria-label="Remove color filter">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="m5 5 14 14m0-14L5 19"/></svg>
+      <span class="tag-clear" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="m5 5 14 14m0-14L5 19"/></svg>
       </span>
     </button>` : '';
   // SVG elements don't support the hidden property — use the attribute
@@ -1646,7 +1686,7 @@ function renderDetailCollections(it) {
   const container = $('detail-collections');
   container.querySelectorAll('.detail-collection-item').forEach((el) => el.remove());
   empty.hidden = memberOf.length > 0;
-  const folder = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
+  const folder = collectionFolderSvg(false);
   for (const c of memberOf) {
     const row = document.createElement('div');
     row.className = 'detail-collection-item';
@@ -1756,8 +1796,8 @@ function renderDetailPrompt(it) {
   pb.innerHTML = promptToHtml(prompt, it.sref || '');
 }
 
-function openDetail(id) {
-  const it = state.items.find((i) => i.id === id);
+async function openDetail(id) {
+  let it = state.items.find((i) => i.id === id);
   if (!it) return;
   state.detailId = id;
   state.detailZoom = 100;
@@ -1773,8 +1813,9 @@ function openDetail(id) {
 
   $('detail-name').value = it.displayName;
   $('detail-colors').innerHTML = it.colors.map((c) =>
-    `<button type="button" class="color-chip" style="background:${esc(c.hex)}" data-hex="${esc(c.hex)}" title="${esc(c.hex)} — filter gallery by this color" aria-label="Filter by ${esc(c.hex)}"></button>`).join('');
+    `<button type="button" class="color-chip" style="background:${esc(c.hex)}" data-hex="${esc(c.hex)}" title="${esc(c.hex)} — click to copy" aria-label="Copy color ${esc(c.hex)}"></button>`).join('');
 
+  if (state.cloud) it = await enrichItemPrompt(it);
   renderDetailPrompt(it);
   $('copy-prompt').disabled = !it.prompt;
 
@@ -1782,7 +1823,6 @@ function openDetail(id) {
   renderDetailSrefs(it);
   renderDetailCollections(it);
   $('collection-input').value = '';
-  $('sref-input').value = '';
   renderSimilarThumbs(it);
   renderDetailMeta(it);
 
@@ -1817,6 +1857,116 @@ function closeDetail() {
   state.srefMenuAnchor = null;
   $('collect-menu').hidden = true;
   $('sref-menu').hidden = true;
+}
+
+const AUTO_TAG_STOP_WORDS = new Set([
+  'the', 'a', 'an', 'of', 'in', 'on', 'at', 'with', 'and', 'or', 'to', 'for', 'is', 'are',
+  'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+  'would', 'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'this', 'that',
+  'these', 'those', 'it', 'its', 'from', 'by', 'as', 'into', 'through', 'during', 'before',
+  'after', 'above', 'below', 'between', 'under', 'over', 'not', 'no', 'yes', 'very', 'more',
+  'most', 'some', 'any', 'all', 'each', 'other', 'than', 'then', 'there', 'their', 'they',
+  'them', 'your', 'you', 'our', 'we', 'his', 'her', 'she', 'he', 'who', 'what', 'when',
+  'where', 'which', 'while', 'about', 'into', 'onto', 'upon', 'out', 'up', 'down', 'off',
+]);
+
+function normalizeAutoTag(raw) {
+  return String(raw).trim().replace(/^#+/, '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+function isAutoTagNoise(token) {
+  if (!token || token.length < 3 || token.length > 32) return true;
+  if (AUTO_TAG_STOP_WORDS.has(token)) return true;
+  if (/^\d+$/.test(token)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(token)) return true;
+  if (/^v\d+(\.\d+)?$/i.test(token)) return true;
+  return false;
+}
+
+function stripPromptParams(prompt) {
+  return String(prompt)
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/--[\w-]+(?:\s+(?!--)[^\s,]+)*/g, ' ');
+}
+
+function tokenizeAutoTagText(text) {
+  return stripPromptParams(text)
+    .split(/[\s,;:|/\\()[\]{}]+/)
+    .map((t) => t.replace(/^['"]+|['"]+$/g, ''))
+    .filter(Boolean);
+}
+
+function autoTagsFromPrompt(prompt) {
+  if (!prompt) return [];
+  const tags = [];
+  const seen = new Set();
+  for (const raw of tokenizeAutoTagText(prompt)) {
+    const tag = normalizeAutoTag(raw);
+    if (isAutoTagNoise(tag) || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function autoTagsFromName(item) {
+  const name = item.displayName || item.originalName || '';
+  const base = name.replace(/\.[^.]+$/, '');
+  const parts = base.split(/[_-]+/);
+  const tags = [];
+  const seen = new Set();
+  parts.forEach((part, idx) => {
+    const tag = normalizeAutoTag(part);
+    if (idx === 0 && /^[a-z0-9]+$/i.test(tag) && tag.length <= 16) return;
+    if (isAutoTagNoise(tag) || seen.has(tag)) return;
+    seen.add(tag);
+    tags.push(tag);
+  });
+  return tags;
+}
+
+function autoTagsFromColors(item) {
+  if (!Array.isArray(item.hueBuckets)) return [];
+  return item.hueBuckets
+    .map((bucket) => normalizeAutoTag(bucket))
+    .filter((tag) => tag && !isAutoTagNoise(tag));
+}
+
+function suggestAutoTags(item) {
+  const seen = new Set();
+  const out = [];
+  const add = (tag) => {
+    const t = normalizeAutoTag(tag);
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  autoTagsFromColors(item).forEach(add);
+  autoTagsFromName(item).forEach(add);
+  autoTagsFromPrompt(item.prompt).forEach(add);
+  return out.slice(0, 12);
+}
+
+async function autoTagDetailItem() {
+  if (!state.detailId) return;
+  let it = state.items.find((i) => i.id === state.detailId);
+  if (!it) return;
+  if (state.cloud && (!it.prompt || it.prompt.length < 40)) {
+    it = await enrichItemPrompt(it) || it;
+  }
+  const suggested = suggestAutoTags(it);
+  const existing = new Set(it.tags.map((t) => normalizeAutoTag(t)));
+  const novel = suggested.filter((t) => !existing.has(t));
+  if (!novel.length) {
+    toast('No new tags to add', 'success', it.thumbUrl);
+    return;
+  }
+  const item = await patchItem(state.detailId, { tags: [...it.tags, ...novel] });
+  if (!item) return;
+  renderTagEditor(item);
+  render();
+  const label = novel.length === 1 ? `"${novel[0]}"` : `${novel.length} tags`;
+  toast(`Added ${label}`, 'success', item.thumbUrl);
 }
 
 function renderTagEditor(it) {
@@ -2035,17 +2185,18 @@ function wire() {
     render();
   });
 
-  // search-bar tag: click reopens the picker, × clears the filter
+  // search-bar tag: hover shows × (Paper); click while hovered clears, otherwise opens picker
   $('search-color-tags').addEventListener('click', (e) => {
     e.stopPropagation();
-    if (e.target.closest('.tag-close')) {
+    const tag = e.target.closest('.search-color-tag');
+    if (!tag || !state.filters.pickedColor) return;
+    if (tag.matches(':hover')) {
       state.filters.pickedColor = null;
       colorPop.hidden = true;
       colorBtn.setAttribute('aria-expanded', 'false');
       render();
       return;
     }
-    if (!state.filters.pickedColor) return;
     Object.assign(pick, hexToHsv(state.filters.pickedColor));
     colorPop.hidden = false;
     colorBtn.setAttribute('aria-expanded', 'true');
@@ -2093,16 +2244,6 @@ function wire() {
   $('type-filter').addEventListener('change', toggleCheckboxSet('types', 'type-filter'));
   $('size-filter').addEventListener('change', toggleCheckboxSet('sizes', 'size-filter'));
   $('source-filter').addEventListener('change', toggleCheckboxSet('sources', 'source-filter'));
-
-  const toggleTagPill = (e) => {
-    const pill = e.target.closest('.pill');
-    if (!pill || !e.target.closest('#tags-filter')) return;
-    const v = pill.dataset.value;
-    const set = state.filters.tags;
-    set.has(v) ? set.delete(v) : set.add(v);
-    render();
-  };
-  $('tags-filter').addEventListener('click', toggleTagPill);
 
   // Collapsible sections
   document.querySelectorAll('.filter-header').forEach((h) => {
@@ -2564,7 +2705,7 @@ function wire() {
     openDetail(thumb.dataset.id);
   });
   $('detail-auto-tag').addEventListener('click', () => {
-    toast('Auto-tag coming soon', 'success');
+    autoTagDetailItem();
   });
   document.addEventListener('keydown', (e) => {
     if ($('detail-scrim').hidden) return;
@@ -2726,63 +2867,6 @@ function wire() {
   });
   collectionInput.addEventListener('blur', () => setTimeout(closeCollectionSuggest, 120));
 
-  const srefInput = $('sref-input');
-  const srefSuggest = $('sref-suggest');
-  let srefFocusIdx = -1;
-  const srefFolderIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>';
-
-  const closeSrefSuggest = () => { srefSuggest.hidden = true; srefFocusIdx = -1; };
-
-  const addSrefFromInput = async (value) => {
-    const v = value.trim();
-    if (!v || !state.detailId) return;
-    await assignSrefToDetailItem(v);
-    srefInput.value = '';
-    closeSrefSuggest();
-  };
-
-  const openSrefSuggest = () => {
-    if (!state.detailId) return closeSrefSuggest();
-    const q = srefInput.value.trim().toLowerCase();
-    const matches = state.srefGroups.filter((g) => !q || g.name.toLowerCase().includes(q));
-    const exactExists = state.srefGroups.some((g) => g.name.toLowerCase() === q);
-    if (!matches.length && !(q && !exactExists)) return closeSrefSuggest();
-    srefFocusIdx = -1;
-    const hi = (t) => q ? esc(t).replace(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'i'), '<mark>$1</mark>') : esc(t);
-    let html = matches.map((g) =>
-      `<button class="tag-suggest-item" data-sref="${esc(g.name)}">${srefFolderIcon}<span class="mono">${hi(g.name)}</span></button>`).join('');
-    if (q && !exactExists) {
-      html += `<button class="tag-suggest-item" data-sref="${esc(srefInput.value.trim())}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="mono">${esc(srefInput.value.trim())}</span><span class="new-hint">New sref</span></button>`;
-    }
-    srefSuggest.innerHTML = html;
-    srefSuggest.hidden = false;
-  };
-
-  srefInput.addEventListener('focus', openSrefSuggest);
-  srefInput.addEventListener('input', openSrefSuggest);
-  srefInput.addEventListener('keydown', (e) => {
-    const items = [...srefSuggest.querySelectorAll('.tag-suggest-item')];
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      if (srefSuggest.hidden || !items.length) return;
-      e.preventDefault();
-      srefFocusIdx = e.key === 'ArrowDown'
-        ? (srefFocusIdx + 1) % items.length
-        : (srefFocusIdx - 1 + items.length) % items.length;
-      items.forEach((it, i) => it.classList.toggle('focused', i === srefFocusIdx));
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (!srefSuggest.hidden && srefFocusIdx > -1) addSrefFromInput(items[srefFocusIdx].dataset.sref);
-      else addSrefFromInput(srefInput.value);
-    } else if (e.key === 'Escape') {
-      if (!srefSuggest.hidden) { e.stopPropagation(); closeSrefSuggest(); }
-    }
-  });
-  srefSuggest.addEventListener('mousedown', (e) => {
-    const item = e.target.closest('.tag-suggest-item');
-    if (item) { e.preventDefault(); addSrefFromInput(item.dataset.sref); }
-  });
-  srefInput.addEventListener('blur', () => setTimeout(closeSrefSuggest, 120));
-
   $('detail-fav').addEventListener('click', async () => {
     if (!state.detailId) return;
     const it = state.items.find((i) => i.id === state.detailId);
@@ -2815,10 +2899,18 @@ function wire() {
     if (updated) renderDetailPrompt(updated);
   });
 
-  $('detail-colors').addEventListener('click', (e) => {
+  $('detail-colors').addEventListener('click', async (e) => {
     const chip = e.target.closest('.color-chip');
     if (!chip) return;
-    applyPickedColorFilter(chip.dataset.hex);
+    const hex = chip.dataset.hex;
+    if (!hex) return;
+    try {
+      await navigator.clipboard.writeText(hex);
+      const it = state.items.find((i) => i.id === state.detailId);
+      toast(`${hex} copied`, 'success', it?.thumbUrl ?? null);
+    } catch {
+      toast('Could not copy color', 'error');
+    }
   });
 
   $('detail-delete').addEventListener('click', async () => {
@@ -2901,10 +2993,8 @@ async function addItemsToCollection(collection, ids, { clearSelection = true } =
   const countLabel = ids.length === 1 ? '1 image added' : `${ids.length} images added`;
   if (first) {
     showSnack(first, `${countLabel} to “${updated.name}”`, 'View', () => {
-      state.activeCollection = updated.id;
-      state.activeSref = null;
-      state.filters.favOnly = false;
-      render();
+      if (state.detailId) closeDetail();
+      openCollectionView(updated.id);
     });
   }
   return true;
@@ -2936,9 +3026,10 @@ async function assignSrefToItems(srefValue, ids) {
   await Promise.all(ids.map((id) => patchItem(id, { sref: val })));
   if (val) await ensureSrefGroupForName(val);
   state.selection.clear();
+  $('sref-menu').hidden = true;
+  state.srefMenuAnchor = null;
   render();
   const first = state.items.find((it) => ids.includes(it.id));
-  const label = val || 'cleared';
   toast(val ? `--sref set on ${countLabel(ids.length)}` : `--sref cleared on ${countLabel(ids.length)}`, 'success', first?.thumbUrl ?? null);
   return true;
 }
@@ -3022,6 +3113,16 @@ function positionCollectMenu() {
   positionToolbarPopover(menu, { anchor: $('add-to-collection') });
 }
 
+function srefMenuAnchorEl() {
+  return state.srefMenuAnchor === 'selection' ? $('bulk-sref') : $('add-to-collection');
+}
+
+function positionSrefMenu() {
+  const menu = $('sref-menu');
+  if (menu.hidden) return;
+  positionToolbarPopover(menu, { anchor: srefMenuAnchorEl() });
+}
+
 /** In-app prompt — window.prompt() is blocked in embedded browsers (returns "" silently). */
 function askPrompt({ title, placeholder = '', defaultValue = '', mono = false }) {
   return new Promise((resolve) => {
@@ -3077,39 +3178,6 @@ async function bulkFavorite() {
   await Promise.all(items.map((i) => patchItem(i.id, { favorite: makeFav })));
   render();
   toast(`${countLabel(items.length)} ${makeFav ? 'favorited' : 'unfavorited'}`, 'success', items[0].thumbUrl);
-}
-
-async function bulkAddTag() {
-  const items = selectedItems();
-  if (!items.length) return;
-  const raw = await askPrompt({
-    title: `Add tag(s) to ${countLabel(items.length)}`,
-    placeholder: 'Separate multiple with commas',
-  });
-  if (raw == null) return;
-  const newTags = raw.split(',').map((t) => t.trim()).filter(Boolean);
-  if (!newTags.length) return;
-  await Promise.all(items.map((i) =>
-    patchItem(i.id, { tags: [...new Set([...i.tags, ...newTags])] })));
-  render();
-  const tagLabel = newTags.length === 1 ? `"${newTags[0]}"` : `${newTags.length} tags`;
-  toast(`Added ${tagLabel} to ${countLabel(items.length)}`, 'success', items[0].thumbUrl);
-}
-
-async function bulkSetSref() {
-  const items = selectedItems();
-  if (!items.length) return;
-  const raw = await askPrompt({
-    title: `Set --sref on ${countLabel(items.length)}`,
-    placeholder: 'e.g. 1234567890',
-    mono: true,
-  });
-  if (raw == null) return;
-  const val = raw.trim();
-  await Promise.all(items.map((i) => patchItem(i.id, { sref: val })));
-  if (val) await ensureSrefGroupForName(val);
-  render();
-  toast(val ? `--sref set on ${countLabel(items.length)}` : `--sref cleared on ${countLabel(items.length)}`, 'success', items[0].thumbUrl);
 }
 
 async function bulkRemoveFromCollection() {
@@ -3188,14 +3256,23 @@ function renderSrefMenuNewInput() {
   menu.innerHTML = '<div class="collect-new-row"><input class="collect-new-input mono" placeholder="Sref code, Enter to assign" /></div>';
   const input = menu.querySelector('.collect-new-input');
   input.focus();
-  requestAnimationFrame(() => positionToolbarPopover(menu, { anchor: $('add-to-collection') }));
+  requestAnimationFrame(() => positionToolbarPopover(menu, { anchor: srefMenuAnchorEl() }));
   input.addEventListener('keydown', async (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') {
       const name = input.value.trim();
-      if (name && state.detailId) await assignSrefToDetailItem(name);
-      menu.hidden = true;
-      state.srefMenuAnchor = null;
+      if (name) {
+        if (state.srefMenuAnchor === 'selection') {
+          await assignSrefToItems(name, [...state.selection]);
+        } else if (state.detailId) {
+          await assignSrefToDetailItem(name);
+          menu.hidden = true;
+          state.srefMenuAnchor = null;
+        }
+      } else {
+        menu.hidden = true;
+        state.srefMenuAnchor = null;
+      }
     } else if (e.key === 'Escape') {
       menu.hidden = true;
       state.srefMenuAnchor = null;
@@ -3349,11 +3426,27 @@ function wireSizeSlider() {
 async function toggleCollectionPin(cid) {
   const c = state.collections.find((x) => x.id === cid);
   if (!c) return;
-  const next = !c.pinned;
-  const { collection } = await apiCollection('PATCH', '/' + cid, { pinned: next }) || {};
-  const idx = state.collections.findIndex((x) => x.id === cid);
-  if (collection) state.collections[idx] = collection;
-  else state.collections[idx] = { ...c, pinned: next };
+  const pinning = !c.pinned;
+  const ids = collectionOrderIds();
+  const idx = ids.indexOf(cid);
+  if (idx < 0) return;
+
+  ids.splice(idx, 1);
+  if (pinning) ids.unshift(cid);
+  else ids.push(cid);
+
+  applyCollectionOrder(ids);
+  const stateIdx = state.collections.findIndex((x) => x.id === cid);
+  state.collections[stateIdx] = { ...state.collections[stateIdx], pinned: pinning };
+
+  const { collection } = await apiCollection('PATCH', '/' + cid, { pinned: pinning }) || {};
+  if (collection) state.collections[stateIdx] = collection;
+
+  const json = await apiCollectionReorder(ids);
+  if (json?.collections) state.collections = json.collections;
+
+  state.sort = 'manual';
+  syncSortUI();
   renderCollections();
   if (state.libraryView === 'collections') renderLibraryBrowse();
 }
@@ -3436,8 +3529,6 @@ function wireCollections() {
   // selection bar
   $('selection-clear').addEventListener('click', () => { state.selection.clear(); render(); });
   $('bulk-favorite').addEventListener('click', bulkFavorite);
-  $('bulk-tag').addEventListener('click', bulkAddTag);
-  $('bulk-sref').addEventListener('click', bulkSetSref);
   $('bulk-delete').addEventListener('click', bulkDelete);
 
   const collectMenu = $('collect-menu');
@@ -3451,6 +3542,16 @@ function wireCollections() {
     renderCollectMenu();
     collectMenu.hidden = false;
     requestAnimationFrame(positionCollectMenu);
+  });
+  $('bulk-sref').addEventListener('click', (e) => {
+    e.stopPropagation();
+    collectMenu.hidden = true;
+    state.collectMenuAnchor = null;
+    if (!srefMenu.hidden) { srefMenu.hidden = true; state.srefMenuAnchor = null; return; }
+    state.srefMenuAnchor = 'selection';
+    renderSrefMenu();
+    srefMenu.hidden = false;
+    requestAnimationFrame(positionSrefMenu);
   });
   collectMenu.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -3474,6 +3575,11 @@ function wireCollections() {
     e.stopPropagation();
     if (e.target.closest('[data-create]')) {
       renderSrefMenuNewInput();
+      return;
+    }
+    const opt = e.target.closest('[data-sref]');
+    if (opt && state.srefMenuAnchor === 'selection') {
+      await assignSrefToItems(opt.dataset.sref, [...state.selection]);
     }
   });
   document.addEventListener('click', (e) => {
@@ -3484,6 +3590,7 @@ function wireCollections() {
       state.collectMenuAnchor = null;
     }
     if (!srefMenu.hidden
+      && !e.target.closest('.sref-wrap')
       && !e.target.closest('#sref-menu')) {
       srefMenu.hidden = true;
       state.srefMenuAnchor = null;
@@ -3491,6 +3598,7 @@ function wireCollections() {
   });
   window.addEventListener('resize', () => {
     if (!collectMenu.hidden) positionCollectMenu();
+    if (!srefMenu.hidden) positionSrefMenu();
   });
 }
 
@@ -3589,8 +3697,21 @@ function wireSrefs() {
 
 /* ---------- Boot ---------- */
 
+async function initColorBtnShader() {
+  const container = $('color-btn-shader');
+  if (!container || container.dataset.shaderMounted) return;
+  try {
+    const { mountColorBtnShader } = await import('./color-btn-shader.js');
+    mountColorBtnShader(container);
+    container.dataset.shaderMounted = 'true';
+  } catch (err) {
+    console.warn('Color button shader unavailable', err);
+  }
+}
+
 async function boot() {
   wire();
+  initColorBtnShader();
   try {
     const res = await fetch('/api/items');
     const json = await res.json();

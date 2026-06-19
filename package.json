@@ -15,6 +15,7 @@
     "logs": "pm2 logs lens"
   },
   "dependencies": {
+    "@paper-design/shaders": "^0.0.76",
     "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.4.0",
     "express": "^4.19.2",

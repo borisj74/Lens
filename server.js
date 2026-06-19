@@ -287,6 +287,11 @@ app.use(express.static(path.join(__dirname, 'public'), {
   lastModified: false,
   setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
 }));
+app.use('/vendor/@paper-design/shaders', express.static(path.join(__dirname, 'node_modules/@paper-design/shaders/dist'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-store'),
+}));
 if (!IS_CLOUD) {
   app.use('/files', express.static(LIB_DIR));
 }
@@ -547,8 +552,9 @@ if (IS_CLOUD) {
 app.patch('/api/items/:id', async (req, res) => {
   const item = db.items.find((it) => it.id === req.params.id);
   if (!item) return res.status(404).json({ error: 'Not found' });
-  const { displayName, tags, sref, favorite } = req.body;
+  const { displayName, tags, sref, favorite, prompt } = req.body;
   if (typeof displayName === 'string' && displayName.trim()) item.displayName = displayName.trim();
+  if (typeof prompt === 'string' && prompt.trim()) item.prompt = prompt.trim();
   if (Array.isArray(tags)) item.tags = tags.map((t) => String(t).trim()).filter(Boolean);
   if (typeof sref === 'string') item.sref = sref.trim();
   if (typeof favorite === 'boolean') item.favorite = favorite;

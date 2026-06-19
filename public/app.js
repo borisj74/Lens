@@ -1741,20 +1741,80 @@ function applyDetailZoom() {
   media.style.transform = pct === 100 ? '' : `scale(${pct / 100})`;
 }
 
-function getSimilarItems(it, limit = 4) {
-  let similar = [];
-  if (it.sref) {
-    similar = state.items.filter((i) => i.id !== it.id && i.sref === it.sref);
+function buildSimilarProfile(item) {
+  const tags = new Set();
+  const subject = new Set();
+  const addSubject = (raw) => {
+    const t = normalizeAutoTag(raw);
+    if (!t || isAutoTagNoise(t)) return;
+    subject.add(t);
+  };
+  (item.tags || []).forEach((tag) => {
+    const t = normalizeAutoTag(tag);
+    if (!t || isAutoTagNoise(t)) return;
+    tags.add(t);
+    subject.add(t);
+  });
+  autoTagsFromColors(item).forEach(addSubject);
+  autoTagsFromName(item).forEach(addSubject);
+  autoTagsFromPrompt(item.prompt).forEach(addSubject);
+  return {
+    tags,
+    subject,
+    promptTokens: new Set(autoTagsFromPrompt(item.prompt)),
+  };
+}
+
+function overlapRatio(setA, setB) {
+  if (!setA.size || !setB.size) return 0;
+  let overlap = 0;
+  for (const t of setA) if (setB.has(t)) overlap++;
+  return overlap / Math.min(setA.size, setB.size);
+}
+
+function scoreSimilarity(source, candidate, sourceProfile) {
+  if (source.id === candidate.id || source.type !== candidate.type) return -1;
+  if (source.sref && candidate.sref === source.sref) return 1000;
+
+  let score = 0;
+  if (source.source === candidate.source) score += 8;
+
+  const sourceBuckets = new Set(source.hueBuckets || []);
+  let bucketOverlap = 0;
+  for (const bucket of candidate.hueBuckets || []) {
+    if (sourceBuckets.has(bucket)) bucketOverlap++;
   }
-  if (similar.length < limit && it.colors?.length) {
-    const dominant = it.colors[0].hex;
-    const colorSimilar = state.items.filter((i) =>
-      i.id !== it.id
-      && !similar.some((s) => s.id === i.id)
-      && i.colors.some((c) => colorClose(c.hex, dominant)));
-    similar = [...similar, ...colorSimilar];
+  score += bucketOverlap * 20;
+
+  if (source.colors?.[0] && candidate.colors?.[0]
+    && colorClose(source.colors[0].hex, candidate.colors[0].hex)) {
+    score += 30;
   }
-  return similar.slice(0, limit);
+
+  let paletteHits = 0;
+  for (const swatch of (source.colors || []).slice(0, 5)) {
+    if ((candidate.colors || []).some((c) => colorClose(swatch.hex, c.hex))) paletteHits++;
+  }
+  score += Math.min(paletteHits, 4) * 8;
+
+  const candidateProfile = buildSimilarProfile(candidate);
+  score += overlapRatio(sourceProfile.tags, candidateProfile.tags) * 120;
+  score += overlapRatio(sourceProfile.subject, candidateProfile.subject) * 70;
+  score += overlapRatio(sourceProfile.promptTokens, candidateProfile.promptTokens) * 50;
+
+  return score;
+}
+
+function getSimilarItems(it, limit = 8) {
+  const profile = buildSimilarProfile(it);
+  const minScore = 36;
+
+  return state.items
+    .map((candidate) => ({ item: candidate, score: scoreSimilarity(it, candidate, profile) }))
+    .filter(({ score }) => score >= minScore)
+    .sort((a, b) => b.score - a.score || (b.item.addedAt || 0) - (a.item.addedAt || 0))
+    .slice(0, limit)
+    .map(({ item }) => item);
 }
 
 function renderDetailCollections(it) {

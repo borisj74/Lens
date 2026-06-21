@@ -447,8 +447,8 @@ async function importFiles(fileList) {
   let done = 0, added = 0, skipped = 0, failed = 0;
   const importedIds = [];
 
+  $('progress-label').textContent = 'Importing…';
   for (const file of files) {
-    $('progress-label').textContent = `Importing ${file.name}`;
     $('progress-count').textContent = `${done + 1} / ${files.length}`;
     try {
       const type = mediaType(file);
@@ -513,11 +513,10 @@ async function importFiles(fileList) {
   if (added > 0) {
     $('grid-wrap')?.scrollTo({ top: 0, behavior: 'smooth' });
     const c = activeCid ? state.collections.find((x) => x.id === activeCid) : null;
-    const parts = [c ? `${added} added to “${c.name}”` : `${added} added to library`];
+    const parts = [c ? `${added} image${added > 1 ? 's' : ''} added to “${c.name}”` : `${added} image${added > 1 ? 's' : ''} added`];
     if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
     if (failed) parts.push(`${failed} failed`);
-    showSnack(state.items[0], parts.join(' · '));
-    if (failed) toast(`${failed} file${failed > 1 ? 's' : ''} failed to import`, 'error');
+    toast(parts.join(' · '), failed ? 'error' : 'success');
   } else {
     const parts = [];
     if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);

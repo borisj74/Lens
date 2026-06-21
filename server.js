@@ -319,6 +319,7 @@ app.use('/api', async (req, res, next) => {
 
 app.get('/api/items', async (req, res) => {
   if (ensureSrefGroupsFromItems()) await saveDb();
+  res.set('Cache-Control', 'no-store');
   res.json({
     items: db.items,
     collections: db.collections,
@@ -569,24 +570,45 @@ app.patch('/api/items/:id', async (req, res) => {
   res.json({ item });
 });
 
-app.delete('/api/items/:id', async (req, res) => {
-  const idx = db.items.findIndex((it) => it.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  const [item] = db.items.splice(idx, 1);
-  hashIndex.delete(item.hash);
+async function deleteItemsById(ids) {
+  const idSet = new Set(ids);
+  const removed = [];
+  db.items = db.items.filter((it) => {
+    if (!idSet.has(it.id)) return true;
+    removed.push(it);
+    hashIndex.delete(it.hash);
+    return false;
+  });
   for (const c of db.collections) {
-    c.itemIds = c.itemIds.filter((id) => id !== item.id);
+    c.itemIds = c.itemIds.filter((id) => !idSet.has(id));
   }
   if (IS_CLOUD) {
-    await delBlobs([item.fileUrl, item.thumbUrl]);
+    await delBlobs(removed.flatMap((it) => [it.fileUrl, it.thumbUrl]));
   } else {
-    for (const url of [item.fileUrl, item.thumbUrl]) {
-      if (url && url.startsWith('/files/')) {
-        fs.rm(path.join(LIB_DIR, url.replace('/files/', '')), { force: true }, () => {});
+    for (const item of removed) {
+      for (const url of [item.fileUrl, item.thumbUrl]) {
+        if (url && url.startsWith('/files/')) {
+          fs.rm(path.join(LIB_DIR, url.replace('/files/', '')), { force: true }, () => {});
+        }
       }
     }
   }
-  await saveDb();
+  if (removed.length) await saveDb();
+  return removed;
+}
+
+app.post('/api/items/batch-delete', async (req, res) => {
+  const ids = req.body && req.body.ids;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required' });
+  const unique = [...new Set(ids.map(String))];
+  const removed = await deleteItemsById(unique);
+  if (!removed.length) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true, deleted: removed.map((it) => it.id) });
+});
+
+app.delete('/api/items/:id', async (req, res) => {
+  const removed = await deleteItemsById([req.params.id]);
+  if (!removed.length) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true });
 });
 

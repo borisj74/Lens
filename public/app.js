@@ -24,6 +24,7 @@ const state = {
   collections: [],
   srefGroups: [],
   selection: new Set(),       // ids of selected cards
+  selectionAnchor: null,      // last clicked id for shift+click range select
   activeCollection: null,     // collection id being viewed, or null
   activeSref: null,           // sref value being viewed, or null
   cloud: false,               // true when the server stores media in Vercel Blob
@@ -1147,7 +1148,10 @@ function wireCollectionContext() {
 
   $('collection-action-organize')?.addEventListener('click', () => {
     state.collectionOrganize = !state.collectionOrganize;
-    if (!state.collectionOrganize) state.selection.clear();
+    if (!state.collectionOrganize) {
+      state.selection.clear();
+      state.selectionAnchor = null;
+    }
     render();
   });
 
@@ -1285,6 +1289,7 @@ function openCollectionView(cid) {
   state.filters.favOnly = false;
   state.libraryView = null;
   state.selection.clear();
+  state.selectionAnchor = null;
   $('main')?.scrollTo(0, 0);
   render();
 }
@@ -2768,7 +2773,7 @@ function wire() {
     const selBtn = e.target.closest('.card-select');
     if (selBtn) {
       e.stopPropagation();
-      toggleSelect(selBtn.closest('.card').dataset.id);
+      handleCardSelect(selBtn.closest('.card').dataset.id, e);
       return;
     }
     const favBtn = e.target.closest('.card-fav-btn');
@@ -2787,7 +2792,7 @@ function wire() {
     if (!card) return;
     // while selecting or organizing, a plain click toggles selection instead of opening detail
     if (state.collectionOrganize || state.selection.size > 0 || e.metaKey || e.shiftKey) {
-      toggleSelect(card.dataset.id);
+      handleCardSelect(card.dataset.id, e);
       return;
     }
     openDetail(card.dataset.id);
@@ -3072,18 +3077,64 @@ function wire() {
 
 /* ---------- Selection & Collections ---------- */
 
-function toggleSelect(id) {
-  const on = !state.selection.has(id);
-  on ? state.selection.add(id) : state.selection.delete(id);
-  // update just this card (avoid re-rendering the whole grid on every toggle)
-  const card = $('grid').querySelector(`.card[data-id="${id}"]`);
-  if (card) {
-    card.classList.toggle('selected', on);
-    const btn = card.querySelector('.card-select');
-    btn.classList.toggle('checked', on);
-    btn.setAttribute('aria-pressed', String(on));
-    btn.setAttribute('aria-label', on ? 'Deselect' : 'Select');
+function visibleItemIds() {
+  return applyFilters().map((it) => it.id);
+}
+
+function patchCardSelection(id, on) {
+  if (on) state.selection.add(id);
+  else state.selection.delete(id);
+  const card = $('grid')?.querySelector(`.card[data-id="${id}"]`);
+  if (!card) return;
+  card.classList.toggle('selected', on);
+  const btn = card.querySelector('.card-select');
+  if (!btn) return;
+  btn.classList.toggle('checked', on);
+  btn.setAttribute('aria-pressed', String(on));
+  btn.setAttribute('aria-label', on ? 'Deselect' : 'Select');
+}
+
+function syncGridSelectionUI() {
+  $('grid')?.querySelectorAll('.card').forEach((card) => {
+    patchCardSelection(card.dataset.id, state.selection.has(card.dataset.id));
+  });
+  renderSelectionBar();
+}
+
+function setSelection(ids, anchorId) {
+  state.selection = new Set(ids);
+  state.selectionAnchor = anchorId ?? (ids.length ? ids[ids.length - 1] : null);
+  syncGridSelectionUI();
+}
+
+function selectRange(anchorId, targetId) {
+  const ids = visibleItemIds();
+  const a = ids.indexOf(anchorId);
+  const b = ids.indexOf(targetId);
+  if (a === -1 || b === -1) {
+    patchCardSelection(targetId, true);
+    state.selectionAnchor = targetId;
+    renderSelectionBar();
+    return;
   }
+  const start = Math.min(a, b);
+  const end = Math.max(a, b);
+  setSelection(ids.slice(start, end + 1), targetId);
+}
+
+function handleCardSelect(id, e) {
+  if (e.shiftKey && state.selectionAnchor) {
+    selectRange(state.selectionAnchor, id);
+    return;
+  }
+  const on = !state.selection.has(id);
+  patchCardSelection(id, on);
+  state.selectionAnchor = id;
+  renderSelectionBar();
+}
+
+function toggleSelect(id) {
+  patchCardSelection(id, !state.selection.has(id));
   renderSelectionBar();
 }
 
@@ -3123,7 +3174,10 @@ async function addItemsToCollection(collection, ids, { clearSelection = true } =
   if (!updated) return false;
   const idx = state.collections.findIndex((c) => c.id === collection.id);
   state.collections[idx] = updated;
-  if (clearSelection) state.selection.clear();
+  if (clearSelection) {
+    state.selection.clear();
+    state.selectionAnchor = null;
+  }
   $('collect-menu').hidden = true;
   render();
   const first = state.items.find((it) => ids.includes(it.id));
@@ -3163,6 +3217,7 @@ async function assignSrefToItems(srefValue, ids) {
   await Promise.all(ids.map((id) => patchItem(id, { sref: val })));
   if (val) await ensureSrefGroupForName(val);
   state.selection.clear();
+  state.selectionAnchor = null;
   $('sref-menu').hidden = true;
   state.srefMenuAnchor = null;
   render();
@@ -3347,11 +3402,19 @@ async function bulkDelete() {
   const n = items.length;
   if (!confirm(`Delete ${countLabel(n)} from the library? The copied files will be removed.`)) return;
   const thumbUrl = items[0].thumbUrl;
-  const results = await Promise.all(items.map((i) =>
-    fetch(`/api/items/${i.id}`, { method: 'DELETE' })
-      .then((r) => (r.ok ? i.id : null))
-      .catch(() => null)));
-  const deleted = new Set(results.filter(Boolean));
+  const ids = items.map((i) => i.id);
+  let deleted = new Set();
+  try {
+    const res = await fetch('/api/items/batch-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      deleted = new Set(json.deleted || []);
+    }
+  } catch { /* network error */ }
   if (deleted.size) {
     state.items = state.items.filter((i) => !deleted.has(i.id));
     for (const id of deleted) state.selection.delete(id);
@@ -3665,7 +3728,11 @@ function wireCollections() {
   });
 
   // selection bar
-  $('selection-clear').addEventListener('click', () => { state.selection.clear(); render(); });
+  $('selection-clear').addEventListener('click', () => {
+    state.selection.clear();
+    state.selectionAnchor = null;
+    render();
+  });
   $('bulk-favorite').addEventListener('click', bulkFavorite);
   $('bulk-delete').addEventListener('click', bulkDelete);
 

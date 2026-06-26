@@ -1,5 +1,5 @@
 /* Lens v1 — local AI media library */
-window.__lensVer = 28;
+window.__lensVer = 29;
 
 const HUE_BUCKETS = [
   { key: 'red', hex: '#D64545', range: [345, 15] },
@@ -30,6 +30,11 @@ const state = {
   cloud: false,               // true when the server stores media in Vercel Blob
   collectionOrganize: false,  // selection mode on single collection page
   libraryView: null,          // null | 'collections' | 'srefs' — full-page browse from "View all"
+  settingsView: false,        // full-page settings (local only)
+  watchedFolders: [],       // { id, path, addedAt }
+  watchSettings: { autoImport: true },
+  libraryPath: '',
+  scanningFolders: new Set(),
   filters: { q: '', colors: new Set(), pickedColor: null, types: new Set(), sources: new Set(), sizes: new Set(), tags: new Set(), favOnly: false },
   sort: 'added-desc',
   detailId: null,
@@ -44,6 +49,162 @@ let collectionClickTimer = null;
 let suppressCollectionNavClick = false;
 let srefClickTimer = null;
 let suppressSrefNavClick = false;
+
+/* ---------- Browser history (back / forward) ---------- */
+
+let historyApplying = false;
+
+function emptyNavSnapshot() {
+  return {
+    activeCollection: null,
+    activeSref: null,
+    libraryView: null,
+    settingsView: false,
+    detailId: null,
+    favOnly: false,
+  };
+}
+
+function navSnapshot() {
+  return {
+    activeCollection: state.activeCollection,
+    activeSref: state.activeSref,
+    libraryView: state.libraryView,
+    settingsView: state.settingsView,
+    detailId: state.detailId,
+    favOnly: state.filters.favOnly,
+  };
+}
+
+function snapshotsEqual(a, b) {
+  if (!a || !b) return false;
+  return a.activeCollection === b.activeCollection
+    && a.activeSref === b.activeSref
+    && a.libraryView === b.libraryView
+    && a.settingsView === b.settingsView
+    && a.detailId === b.detailId
+    && a.favOnly === b.favOnly;
+}
+
+function hashFromSnapshot(snap) {
+  if (snap.detailId) return `#detail/${snap.detailId}`;
+  if (snap.settingsView) return '#settings';
+  if (snap.libraryView === 'collections') return '#browse/collections';
+  if (snap.libraryView === 'srefs') return '#browse/srefs';
+  if (snap.activeCollection) return `#collection/${snap.activeCollection}`;
+  if (snap.activeSref) return `#sref/${encodeURIComponent(snap.activeSref)}`;
+  if (snap.favOnly) return '#favorites';
+  return '#';
+}
+
+function snapshotFromHash(hash) {
+  const h = (hash || '').replace(/^#/, '');
+  if (!h) return emptyNavSnapshot();
+  if (h.startsWith('detail/')) return { ...emptyNavSnapshot(), detailId: h.slice(7) };
+  if (h === 'favorites') return { ...emptyNavSnapshot(), favOnly: true };
+  if (h === 'settings') return { ...emptyNavSnapshot(), settingsView: true };
+  if (h === 'browse/collections') return { ...emptyNavSnapshot(), libraryView: 'collections' };
+  if (h === 'browse/srefs') return { ...emptyNavSnapshot(), libraryView: 'srefs' };
+  if (h.startsWith('collection/')) return { ...emptyNavSnapshot(), activeCollection: h.slice(11) };
+  if (h.startsWith('sref/')) return { ...emptyNavSnapshot(), activeSref: decodeURIComponent(h.slice(5)) };
+  return emptyNavSnapshot();
+}
+
+function validateNavSnapshot(snap) {
+  const next = { ...emptyNavSnapshot(), ...snap };
+  if (next.activeCollection && !state.collections.some((c) => c.id === next.activeCollection)) {
+    next.activeCollection = null;
+  }
+  if (next.detailId && !state.items.some((it) => it.id === next.detailId)) {
+    next.detailId = null;
+  }
+  if (next.activeSref && !state.srefGroups.some((g) => g.name === next.activeSref)
+    && !state.items.some((it) => it.sref === next.activeSref)) {
+    next.activeSref = null;
+  }
+  if (next.libraryView !== 'collections' && next.libraryView !== 'srefs') {
+    next.libraryView = null;
+  }
+  if (next.settingsView && state.cloud) next.settingsView = false;
+  return next;
+}
+
+function commitNav({ replace = false } = {}) {
+  if (historyApplying) return;
+  const snap = navSnapshot();
+  const url = `${location.pathname}${location.search}${hashFromSnapshot(snap)}`;
+  if (!replace && snapshotsEqual(snap, history.state)) return;
+  if (replace) history.replaceState(snap, '', url);
+  else history.pushState(snap, '', url);
+}
+
+function closeDetailUI() {
+  const video = document.querySelector('#detail-media video');
+  if (video) video.pause();
+  state.detailId = null;
+  if ($('detail-scrim')) $('detail-scrim').hidden = true;
+  updateDetailNavBar();
+  if ($('detail-info-popover')) $('detail-info-popover').hidden = true;
+  state.collectMenuAnchor = null;
+  state.srefMenuAnchor = null;
+  if ($('collect-menu')) $('collect-menu').hidden = true;
+  if ($('sref-menu')) $('sref-menu').hidden = true;
+}
+
+async function applyNavSnapshot(snap, { scroll = false } = {}) {
+  historyApplying = true;
+  snap = validateNavSnapshot(snap);
+
+  closeDetailUI();
+  state.activeCollection = snap.activeCollection;
+  state.activeSref = snap.activeSref;
+  state.libraryView = snap.libraryView;
+  state.settingsView = Boolean(snap.settingsView);
+  state.filters.favOnly = snap.favOnly;
+  state.collectionOrganize = false;
+  state.selection.clear();
+  state.selectionAnchor = null;
+
+  render();
+  if (scroll) $('main')?.scrollTo(0, 0);
+
+  if (snap.detailId) {
+    state.detailId = snap.detailId;
+    await showDetailUI(snap.detailId);
+  }
+  historyApplying = false;
+}
+
+function goToAllLibrary() {
+  closeDetailUI();
+  state.libraryView = null;
+  state.settingsView = false;
+  state.activeCollection = null;
+  state.activeSref = null;
+  state.filters.favOnly = false;
+  state.collectionOrganize = false;
+  render();
+  commitNav();
+}
+
+function goToFavorites() {
+  closeDetailUI();
+  state.libraryView = null;
+  state.settingsView = false;
+  state.activeCollection = null;
+  state.activeSref = null;
+  state.filters.favOnly = true;
+  state.collectionOrganize = false;
+  render();
+  commitNav();
+}
+
+function wireHistory() {
+  window.addEventListener('popstate', (e) => {
+    const snap = validateNavSnapshot(e.state || snapshotFromHash(location.hash));
+    void applyNavSnapshot(snap, { scroll: false });
+  });
+}
 
 function itemSizeBucket(it) {
   const mp = it.width && it.height ? (it.width * it.height) / 1e6 : null;
@@ -494,6 +655,7 @@ async function importFiles(fileList) {
   fill.style.width = '0%';
 
   const activeCid = state.activeCollection && !state.libraryView ? state.activeCollection : null;
+  const activeSref = state.activeSref && !state.libraryView ? state.activeSref : null;
   if (activeCid && importedIds.length) {
     const c = state.collections.find((x) => x.id === activeCid);
     if (c) {
@@ -505,6 +667,11 @@ async function importFiles(fileList) {
     }
   }
 
+  if (activeSref && importedIds.length) {
+    await Promise.all(importedIds.map((id) => patchItem(id, { sref: activeSref })));
+    await ensureSrefGroupForName(activeSref);
+  }
+
   if (added > 0) {
     state.sort = 'added-desc';
     syncSortUI();
@@ -514,7 +681,11 @@ async function importFiles(fileList) {
   if (added > 0) {
     $('grid-wrap')?.scrollTo({ top: 0, behavior: 'smooth' });
     const c = activeCid ? state.collections.find((x) => x.id === activeCid) : null;
-    const parts = [c ? `${added} image${added > 1 ? 's' : ''} added to “${c.name}”` : `${added} image${added > 1 ? 's' : ''} added`];
+    const parts = [
+      c ? `${added} image${added > 1 ? 's' : ''} added to “${c.name}”`
+        : activeSref ? `${added} image${added > 1 ? 's' : ''} added to “${formatSrefLabel(activeSref)}”`
+        : `${added} image${added > 1 ? 's' : ''} added`,
+    ];
     if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
     if (failed) parts.push(`${failed} failed`);
     toast(parts.join(' · '), failed ? 'error' : 'success');
@@ -592,12 +763,9 @@ function applyPickedColorFilter(hex) {
 function findSimilarBySref(id) {
   const it = state.items.find((i) => i.id === id);
   if (!it || !it.sref) return;
-  state.activeSref = it.sref;
-  state.activeCollection = null;
-  state.filters.favOnly = false;
-  state.libraryView = null;
-  closeDetail();
-  render();
+  const fromDetail = Boolean(state.detailId);
+  closeDetailUI();
+  openSrefView(it.sref, { history: fromDetail ? 'replace' : 'push' });
 }
 
 // "More like this (color)": reuse the existing perceptual color filter with the item's
@@ -605,8 +773,10 @@ function findSimilarBySref(id) {
 function findSimilarByColor(id) {
   const it = state.items.find((i) => i.id === id);
   if (!it || !it.colors || !it.colors.length) return;
-  closeDetail();
+  const fromDetail = Boolean(state.detailId);
+  closeDetailUI();
   applyPickedColorFilter(it.colors[0].hex);
+  if (fromDetail) commitNav({ replace: true });
 }
 
 function applyFilters() {
@@ -710,7 +880,23 @@ function esc(s) {
 function render() {
   const browse = $('library-browse');
   const gridWrap = $('grid-wrap');
+  const settingsView = $('settings-view');
   document.body.classList.toggle('is-library-browse', Boolean(state.libraryView));
+  document.body.classList.toggle('is-settings-view', Boolean(state.settingsView));
+
+  if (state.settingsView) {
+    if (browse) browse.hidden = true;
+    if (gridWrap) gridWrap.hidden = true;
+    if (settingsView) settingsView.hidden = false;
+    const collCtx = $('collection-context');
+    if (collCtx) collCtx.hidden = true;
+    renderSettings();
+    updateNavChrome();
+    renderSelectionBar();
+    return;
+  }
+  if (settingsView) settingsView.hidden = true;
+
   if (state.libraryView) {
     if (browse) browse.hidden = false;
     if (gridWrap) gridWrap.hidden = true;
@@ -823,7 +1009,7 @@ function navListThumbHtml(members) {
   return `<span class="nav-list-thumb" style="background-image:url('${hero.thumbUrl}')" aria-hidden="true"></span>`;
 }
 
-const BROWSE_PREVIEW_MAX = 4;
+const BROWSE_PREVIEW_MAX = 5;
 
 function navCollectionRowHtml(c) {
   const members = collectionMembers(c);
@@ -1037,7 +1223,7 @@ function renderSrefs() {
   const q = ($('srefs-search')?.value || '').trim().toLowerCase();
   const shown = sortList(
     q ? state.srefGroups.filter((g) => g.name.toLowerCase().includes(q)) : state.srefGroups,
-    { date: (g) => g.createdAt || 0, name: (g) => g.name },
+    { date: (g) => g.createdAt || 0, name: (g) => g.name, orderSource: state.srefGroups },
   );
   const isSearching = Boolean(q);
   const preview = isSearching ? shown : shown.slice(0, BROWSE_PREVIEW_MAX);
@@ -1060,8 +1246,9 @@ function renderSrefs() {
 function updateNavChrome() {
   const activeColl = state.activeCollection ? state.collections.find((c) => c.id === state.activeCollection) : null;
   const inBrowse = Boolean(state.libraryView);
-  $('nav-all').dataset.active = String(!inBrowse && !state.filters.favOnly && !activeColl && !state.activeSref);
-  $('nav-fav').dataset.active = String(!inBrowse && state.filters.favOnly && !activeColl && !state.activeSref);
+  const inSettings = Boolean(state.settingsView);
+  $('nav-all').dataset.active = String(!inBrowse && !inSettings && !state.filters.favOnly && !activeColl && !state.activeSref);
+  $('nav-fav').dataset.active = String(!inBrowse && !inSettings && state.filters.favOnly && !activeColl && !state.activeSref);
 
   const countCollections = $('count-collections');
   if (countCollections) countCollections.textContent = state.collections.length;
@@ -1082,16 +1269,20 @@ function updateNavChrome() {
     const hideOnBrowse = libraryBrowse ? !libraryBrowse.hidden : (
       state.libraryView === 'collections' || state.libraryView === 'srefs'
     );
-    sizeControl.hidden = hideOnBrowse;
+    sizeControl.hidden = hideOnBrowse || inSettings;
   }
+  const settingsBtn = $('settings-btn');
+  if (settingsBtn) settingsBtn.dataset.active = String(inSettings);
 }
 
 function openLibraryBrowse(view) {
   const searchId = view === 'collections' ? 'collections-search' : 'srefs-search';
   const search = $(searchId);
   if (search) search.value = '';
+  closeDetailUI();
   state.activeCollection = null;
   state.activeSref = null;
+  state.settingsView = false;
   state.collectionOrganize = false;
   state.filters.favOnly = false;
   state.libraryView = view;
@@ -1100,6 +1291,12 @@ function openLibraryBrowse(view) {
   render();
   if (view === 'collections') renderCollections();
   else renderSrefs();
+  commitNav();
+}
+
+function formatSrefLabel(name) {
+  if (!name) return '';
+  return name.startsWith('--') ? name : `--sref ${name}`;
 }
 
 function renderCollectionContext() {
@@ -1110,7 +1307,10 @@ function renderCollectionContext() {
   const c = state.activeCollection
     ? state.collections.find((x) => x.id === state.activeCollection)
     : null;
-  const show = Boolean(c) && !state.libraryView;
+  const srefName = state.activeSref;
+  const showCollection = Boolean(c) && !state.libraryView;
+  const showSref = Boolean(srefName) && !state.libraryView && !showCollection;
+  const show = showCollection || showSref;
 
   ctx.hidden = !show;
   if (!show) {
@@ -1131,10 +1331,14 @@ function renderCollectionContext() {
   const isRenaming = Boolean(titleEl?.querySelector('.collection-name-input'));
   if (actions) actions.hidden = isRenaming;
 
-  const label = c.name;
   if (titleEl && !isRenaming) {
-    titleEl.textContent = label;
-    titleEl.setAttribute('aria-label', `Collection ${label}`);
+    if (showCollection) {
+      titleEl.textContent = c.name;
+      titleEl.setAttribute('aria-label', `Collection ${c.name}`);
+    } else {
+      titleEl.textContent = formatSrefLabel(srefName);
+      titleEl.setAttribute('aria-label', `Sref ${srefName}`);
+    }
   }
 
   const organizeBtn = $('collection-action-organize');
@@ -1157,15 +1361,26 @@ function wireCollectionContext() {
 
   $('collection-action-more')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    const cid = state.activeCollection;
-    if (!cid) return;
     const btn = $('collection-action-more');
     const menu = $('collection-context-menu');
-    if (!menu.hidden && browseContextTarget?.kind === 'collection' && browseContextTarget.id === cid) {
-      closeBrowseContextMenu();
+    if (state.activeCollection) {
+      const cid = state.activeCollection;
+      if (!menu.hidden && browseContextTarget?.kind === 'collection' && browseContextTarget.id === cid) {
+        closeBrowseContextMenu();
+        return;
+      }
+      openBrowseContextMenu({ kind: 'collection', id: cid }, 0, 0, btn, 'below');
       return;
     }
-    openBrowseContextMenu({ kind: 'collection', id: cid }, 0, 0, btn, 'below');
+    if (state.activeSref) {
+      const g = state.srefGroups.find((x) => x.name === state.activeSref);
+      if (!g) return;
+      if (!menu.hidden && browseContextTarget?.kind === 'sref' && browseContextTarget.id === g.id) {
+        closeBrowseContextMenu();
+        return;
+      }
+      openBrowseContextMenu({ kind: 'sref', id: g.id }, 0, 0, btn, 'below');
+    }
   });
 }
 
@@ -1202,6 +1417,7 @@ function startCollectionContextRename() {
     }
     render();
     renderCollections();
+    if (state.activeCollection === cid) commitNav({ replace: true });
   };
   const onBlur = () => { void commit(); };
   input.addEventListener('keydown', (ev) => {
@@ -1235,6 +1451,7 @@ function startSrefContextRename() {
   titleEl.appendChild(input);
   input.focus();
   input.select();
+  renderCollectionContext();
 
   let done = false;
   const commit = async () => {
@@ -1251,6 +1468,7 @@ function startSrefContextRename() {
     }
     render();
     renderSrefs();
+    if (state.activeSref) commitNav({ replace: true });
   };
   const onBlur = () => { void commit(); };
   input.addEventListener('keydown', (ev) => {
@@ -1282,7 +1500,21 @@ function applyCollectionOrder(ids) {
   state.collections = ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
-function openCollectionView(cid) {
+function srefGroupOrderIds() {
+  return sortList(state.srefGroups, {
+    date: (g) => g.createdAt || 0,
+    name: (g) => g.name,
+    orderSource: state.srefGroups,
+  }).map((g) => g.id);
+}
+
+function applySrefGroupOrder(ids) {
+  const byId = new Map(state.srefGroups.map((g) => [g.id, g]));
+  state.srefGroups = ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function openCollectionView(cid, { history: historyMode = 'push' } = {}) {
+  closeDetailUI();
   state.activeCollection = cid;
   state.activeSref = null;
   state.collectionOrganize = false;
@@ -1292,15 +1524,21 @@ function openCollectionView(cid) {
   state.selectionAnchor = null;
   $('main')?.scrollTo(0, 0);
   render();
+  commitNav({ replace: historyMode === 'replace' });
 }
 
-function openSrefView(sref) {
+function openSrefView(sref, { history: historyMode = 'push' } = {}) {
+  closeDetailUI();
   state.activeSref = sref;
   state.activeCollection = null;
+  state.collectionOrganize = false;
   state.filters.favOnly = false;
   state.libraryView = null;
+  state.selection.clear();
+  state.selectionAnchor = null;
   $('main')?.scrollTo(0, 0);
   render();
+  commitNav({ replace: historyMode === 'replace' });
 }
 
 function renderLibraryBrowse() {
@@ -1321,8 +1559,8 @@ function renderLibraryBrowse() {
   const grid = $('library-browse-grid');
   const empty = $('library-browse-empty');
 
-  if (crumb) crumb.textContent = isColl ? 'Collections' : 'Srefs';
-  if (title) title.textContent = isColl ? 'Collections' : 'Srefs';
+  if (crumb) crumb.textContent = isColl ? 'Collections' : 'SREFs';
+  if (title) title.textContent = isColl ? 'Collections' : 'SREFs';
 
   if (isColl) {
     browse.classList.add('library-browse--cards');
@@ -1376,6 +1614,7 @@ async function deleteSrefById(gid) {
   if (state.activeSref === g.name) state.activeSref = null;
   render();
   renderSrefs();
+  commitNav({ replace: true });
   return true;
 }
 
@@ -1388,6 +1627,7 @@ async function deleteCollectionById(cid) {
   if (state.activeCollection === cid) state.activeCollection = null;
   render();
   renderCollections();
+  commitNav({ replace: true });
   return true;
 }
 
@@ -1539,6 +1779,11 @@ function wireCollectionContextMenu() {
     }
     const gid = target.id;
     if (action === 'rename') {
+      const g = state.srefGroups.find((x) => x.id === gid);
+      if (g && state.activeSref === g.name) {
+        startSrefContextRename();
+        return;
+      }
       const nameEl = findSrefNameEl(gid);
       if (nameEl) startSrefRename(nameEl);
       return;
@@ -1567,8 +1812,7 @@ function wireLibraryBrowse() {
   if (!browse) return;
 
   $('library-browse-back')?.addEventListener('click', () => {
-    state.libraryView = null;
-    render();
+    history.back();
   });
 
   browse.addEventListener('click', async (e) => {
@@ -1660,6 +1904,11 @@ function wireLibraryBrowse() {
 
 function renderSelectionBar() {
   const bar = $('selection-bar');
+  if (state.settingsView || state.libraryView) {
+    bar.hidden = true;
+    positionToastStack();
+    return;
+  }
   const n = state.selection.size;
   bar.hidden = n === 0;
   if (n) $('selection-count').textContent = `${n} Selected`;
@@ -1937,10 +2186,10 @@ function renderDetailPrompt(it) {
   pb.innerHTML = promptToHtml(prompt, it.sref || '');
 }
 
-async function openDetail(id) {
+async function showDetailUI(id) {
   let it = state.items.find((i) => i.id === id);
   if (!it) return;
-  state.detailId = id;
+
   state.detailZoom = 100;
   try {
     const viewed = [id, ...JSON.parse(localStorage.getItem('lens.recentViewed') || '[]').filter((v) => v !== id)].slice(0, 10);
@@ -1979,25 +2228,35 @@ async function openDetail(id) {
   updateDetailNavBar();
 }
 
+async function openDetail(id, { history: historyMode = 'push' } = {}) {
+  if (!state.items.find((i) => i.id === id)) return;
+  state.detailId = id;
+  await showDetailUI(id);
+  if (historyMode === 'none' || historyApplying) return;
+  commitNav({ replace: historyMode === 'replace' });
+}
+
 function navigateDetail(delta) {
   const visible = detailVisibleItems();
   const idx = visible.findIndex((i) => i.id === state.detailId);
   if (idx < 0) return;
   const next = visible[idx + delta];
-  if (next) openDetail(next.id);
+  if (next) openDetail(next.id, { history: 'replace' });
 }
 
 function closeDetail() {
-  const video = document.querySelector('#detail-media video');
-  if (video) video.pause();
-  state.detailId = null;
-  $('detail-scrim').hidden = true;
-  updateDetailNavBar();
-  $('detail-info-popover').hidden = true;
-  state.collectMenuAnchor = null;
-  state.srefMenuAnchor = null;
-  $('collect-menu').hidden = true;
-  $('sref-menu').hidden = true;
+  if (!state.detailId) return;
+  if (historyApplying) {
+    closeDetailUI();
+    return;
+  }
+  if (history.state?.detailId) {
+    closeDetailUI();
+    history.back();
+    return;
+  }
+  closeDetailUI();
+  commitNav({ replace: true });
 }
 
 const AUTO_TAG_STOP_WORDS = new Set([
@@ -2185,7 +2444,7 @@ function showSnack(item, text, actionLabel, onAction) {
 function showFavSnack(item, faved) {
   showSnack(item, faved ? 'Added to Favorites' : 'Removed from Favorites',
     faved ? 'View favorites' : null,
-    () => { state.filters.favOnly = true; render(); });
+    () => { goToFavorites(); });
 }
 
 const TOAST_ICON = {
@@ -2246,9 +2505,232 @@ function toast(msg, kind = 'success', imageUrl = null) {
   }, 3500);
 }
 
+/* ---------- Settings & folder watch ---------- */
+
+function goToSettings() {
+  closeDetailUI();
+  state.settingsView = true;
+  state.libraryView = null;
+  state.activeCollection = null;
+  state.activeSref = null;
+  state.filters.favOnly = false;
+  state.collectionOrganize = false;
+  state.selection.clear();
+  state.selectionAnchor = null;
+  closeNavPops();
+  render();
+  commitNav();
+  $('main')?.scrollTo(0, 0);
+}
+
+function renderSettings() {
+  const list = $('watch-folder-list');
+  const empty = $('watch-folder-empty');
+  const auto = $('watch-auto-import');
+  const libPath = $('settings-library-path');
+  if (auto) auto.checked = state.watchSettings.autoImport !== false;
+  if (libPath) libPath.textContent = state.libraryPath || '—';
+  if (!list) return;
+
+  list.innerHTML = state.watchedFolders.map((f) => {
+    const scanning = state.scanningFolders.has(f.id);
+    return `
+    <li class="settings-folder-row" data-id="${esc(f.id)}">
+      <span class="settings-folder-path" title="${esc(f.path)}">${esc(f.path)}</span>
+      <div class="settings-folder-actions">
+        <button type="button" class="settings-btn settings-btn--ghost" data-scan-watch="${esc(f.id)}" ${scanning ? 'disabled' : ''} aria-label="Scan folder now">${scanning ? 'Scanning…' : 'Scan now'}</button>
+        <button type="button" class="settings-folder-remove" data-remove-watch="${esc(f.id)}" aria-label="Remove watched folder">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </li>`;
+  }).join('');
+
+  if (empty) empty.hidden = state.watchedFolders.length > 0;
+}
+
+async function apiWatch(method, path, body) {
+  const res = await fetch('/api/watch' + path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || 'Request failed');
+  return json;
+}
+
+async function addWatchedFolder(pathValue) {
+  const json = await apiWatch('POST', '/folders', { path: pathValue });
+  state.watchedFolders = json.watchedFolders || state.watchedFolders;
+  renderSettings();
+}
+
+async function removeWatchedFolder(id) {
+  const json = await apiWatch('DELETE', '/folders/' + id);
+  state.watchedFolders = json.watchedFolders || state.watchedFolders.filter((f) => f.id !== id);
+  renderSettings();
+}
+
+async function patchWatchSettings(patch) {
+  const json = await apiWatch('PATCH', '/settings', patch);
+  if (json.watchSettings) state.watchSettings = json.watchSettings;
+  renderSettings();
+}
+
+async function scanWatchedFolder(id) {
+  if (state.scanningFolders.has(id)) return;
+  state.scanningFolders.add(id);
+  renderSettings();
+  try {
+    await apiWatch('POST', '/folders/' + id + '/scan');
+    toast('Scanning folder…', 'success');
+  } catch (err) {
+    state.scanningFolders.delete(id);
+    renderSettings();
+    toast(err.message || 'Could not start scan', 'error');
+  }
+}
+
+async function pickWatchFolder() {
+  try {
+    const json = await apiWatch('POST', '/pick-folder');
+    const input = $('watch-folder-path');
+    if (input && json.path) input.value = json.path;
+  } catch (err) {
+    if (err.message !== 'Cancelled') toast(err.message || 'Could not pick folder', 'error');
+  }
+}
+
+async function revealLibraryFolder() {
+  try {
+    const res = await fetch('/api/library/reveal', { method: 'POST' });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error || 'Could not open Finder');
+  } catch (err) {
+    toast(err.message || 'Could not open Finder', 'error');
+  }
+}
+
+function mergeWatchImportedItems(items) {
+  if (!Array.isArray(items) || !items.length) return 0;
+  const existing = new Set(state.items.map((it) => it.id));
+  let added = 0;
+  for (const item of items) {
+    if (!item?.id || existing.has(item.id)) continue;
+    state.items.unshift(item);
+    existing.add(item.id);
+    added += 1;
+  }
+  if (added > 0) {
+    state.sort = 'added-desc';
+    syncSortUI();
+    render();
+    if (!state.settingsView && !state.libraryView) {
+      $('grid-wrap')?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+  return added;
+}
+
+function handleWatchImportEvent(payload) {
+  const added = mergeWatchImportedItems(payload.items);
+  const skipped = payload.skipped || 0;
+  const failed = payload.failed || 0;
+  state.scanningFolders.clear();
+  if (state.settingsView) renderSettings();
+  if (added > 0) {
+    const verb = payload.source === 'scan' ? 'imported from scan' : 'auto-imported';
+    const parts = [`${added} image${added > 1 ? 's' : ''} ${verb}`];
+    if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
+    if (failed) parts.push(`${failed} failed`);
+    toast(parts.join(' · '), failed ? 'error' : 'success');
+  } else if (payload.source === 'scan') {
+    const parts = [];
+    if (skipped) parts.push(`${skipped} duplicate${skipped > 1 ? 's' : ''} skipped`);
+    if (failed) parts.push(`${failed} failed`);
+    toast(parts.join(', ') || 'Scan complete — nothing new to import', skipped || failed ? 'error' : 'success');
+  }
+}
+
+function wireWatchStream() {
+  if (state.cloud) return;
+  const es = new EventSource('/api/watch/stream');
+  es.onmessage = (ev) => {
+    try {
+      const payload = JSON.parse(ev.data);
+      if (payload.type === 'watch-import') handleWatchImportEvent(payload);
+    } catch { /* ignore */ }
+  };
+  es.onerror = () => { /* browser reconnects automatically */ };
+}
+
+function wireSettings() {
+  const settingsBtn = $('settings-btn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (state.settingsView) goToAllLibrary();
+      else goToSettings();
+    });
+  }
+  $('settings-back')?.addEventListener('click', () => goToAllLibrary());
+
+  $('watch-auto-import')?.addEventListener('change', async (e) => {
+    try {
+      await patchWatchSettings({ autoImport: e.target.checked });
+    } catch (err) {
+      toast(err.message || 'Could not save setting', 'error');
+      renderSettings();
+    }
+  });
+
+  $('watch-folder-add')?.addEventListener('click', async () => {
+    const input = $('watch-folder-path');
+    const pathValue = input?.value?.trim();
+    if (!pathValue) {
+      toast('Enter a folder path', 'error');
+      return;
+    }
+    try {
+      await addWatchedFolder(pathValue);
+      if (input) input.value = '';
+      toast('Folder added to watch list', 'success');
+    } catch (err) {
+      toast(err.message || 'Could not add folder', 'error');
+    }
+  });
+
+  $('watch-folder-browse')?.addEventListener('click', () => { void pickWatchFolder(); });
+  $('settings-library-reveal')?.addEventListener('click', () => { void revealLibraryFolder(); });
+
+  $('watch-folder-path')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $('watch-folder-add')?.click();
+  });
+
+  $('watch-folder-list')?.addEventListener('click', async (e) => {
+    const scanBtn = e.target.closest('[data-scan-watch]');
+    if (scanBtn) {
+      await scanWatchedFolder(scanBtn.dataset.scanWatch);
+      return;
+    }
+    const btn = e.target.closest('[data-remove-watch]');
+    if (!btn) return;
+    const id = btn.dataset.removeWatch;
+    try {
+      await removeWatchedFolder(id);
+      toast('Folder removed', 'success');
+    } catch (err) {
+      toast(err.message || 'Could not remove folder', 'error');
+    }
+  });
+}
+
 /* ---------- Event wiring ---------- */
 
 function wire() {
+  wireHistory();
+  wireSettings();
+
   // Color picker popover (search bar) — sets state.filters.pickedColor (single color)
   const colorBtn = $('color-btn');
   const colorPop = $('color-pop');
@@ -2544,20 +3026,8 @@ function wire() {
   });
 
   // Nav
-  $('nav-all').addEventListener('click', () => {
-    state.libraryView = null;
-    state.activeCollection = null;
-    state.activeSref = null;
-    state.filters.favOnly = false;
-    render();
-  });
-  $('nav-fav').addEventListener('click', () => {
-    state.libraryView = null;
-    state.activeCollection = null;
-    state.activeSref = null;
-    state.filters.favOnly = true;
-    render();
-  });
+  $('nav-all').addEventListener('click', goToAllLibrary);
+  $('nav-fav').addEventListener('click', goToFavorites);
 
   wireLibraryBrowse();
   wireCollectionContextMenu();
@@ -2567,11 +3037,13 @@ function wire() {
   wireSrefs();
 
   $('clear-filters').addEventListener('click', () => {
+    const hadSrefView = Boolean(state.activeSref);
     state.activeSref = null;
     state.filters = { q: '', colors: new Set(), pickedColor: null, types: new Set(), sources: new Set(), sizes: new Set(), tags: new Set(), favOnly: false };
     $('search').value = '';
     $('search-clear').hidden = true;
     render();
+    if (hadSrefView) commitNav({ replace: true });
   });
 
   // Sort dropdown
@@ -3168,6 +3640,16 @@ async function apiSrefGroup(method, path, body) {
   return res.status === 200 ? res.json() : {};
 }
 
+async function apiSrefGroupReorder(ids) {
+  const res = await fetch('/api/sref-groups/reorder', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) { toast('Could not save sref order', 'error'); return null; }
+  return res.json();
+}
+
 async function addItemsToCollection(collection, ids, { clearSelection = true } = {}) {
   if (!ids.length) return false;
   const { collection: updated } = await apiCollection('PATCH', '/' + collection.id, { addItemIds: ids }) || {};
@@ -3184,8 +3666,9 @@ async function addItemsToCollection(collection, ids, { clearSelection = true } =
   const countLabel = ids.length === 1 ? '1 image added' : `${ids.length} images added`;
   if (first) {
     showSnack(first, `${countLabel} to “${updated.name}”`, 'View', () => {
-      if (state.detailId) closeDetail();
-      openCollectionView(updated.id);
+      const fromDetail = Boolean(state.detailId);
+      closeDetailUI();
+      openCollectionView(updated.id, { history: fromDetail ? 'replace' : 'push' });
     });
   }
   return true;
@@ -3208,7 +3691,22 @@ async function ensureSrefGroupForName(name) {
   const val = name.trim();
   if (!val || state.srefGroups.some((g) => g.name === val)) return;
   const { group } = await apiSrefGroup('POST', '', { name: val }) || {};
-  if (group) state.srefGroups.push(group);
+  upsertSrefGroup(group);
+}
+
+function upsertSrefGroup(group) {
+  if (!group) return;
+  const idx = state.srefGroups.findIndex((g) => g.id === group.id || g.name === group.name);
+  if (idx >= 0) state.srefGroups[idx] = group;
+  else state.srefGroups.push(group);
+}
+
+function nextUntitledSrefName() {
+  const base = 'Untitled sref';
+  if (!state.srefGroups.some((g) => g.name === base)) return base;
+  let n = 2;
+  while (state.srefGroups.some((g) => g.name === `${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
 }
 
 async function assignSrefToItems(srefValue, ids) {
@@ -3696,11 +4194,8 @@ function wireCollections() {
     clearTimeout(collectionClickTimer);
     collectionClickTimer = setTimeout(() => {
       if (suppressCollectionNavClick) { suppressCollectionNavClick = false; return; }
-      state.activeCollection = state.activeCollection === cid ? null : cid;
-      state.activeSref = null;
-      state.filters.favOnly = false;
-      state.libraryView = null;
-      render();
+      if (state.activeCollection === cid) goToAllLibrary();
+      else openCollectionView(cid);
     }, 220);
   });
 
@@ -3810,11 +4305,27 @@ function wireCollections() {
 async function toggleSrefPin(gid) {
   const g = state.srefGroups.find((x) => x.id === gid);
   if (!g) return;
-  const next = !g.pinned;
-  const { group } = await apiSrefGroup('PATCH', '/' + gid, { pinned: next }) || {};
-  const idx = state.srefGroups.findIndex((x) => x.id === gid);
-  if (group) state.srefGroups[idx] = group;
-  else state.srefGroups[idx] = { ...g, pinned: next };
+  const pinning = !g.pinned;
+  const ids = srefGroupOrderIds();
+  const idx = ids.indexOf(gid);
+  if (idx < 0) return;
+
+  ids.splice(idx, 1);
+  if (pinning) ids.unshift(gid);
+  else ids.push(gid);
+
+  applySrefGroupOrder(ids);
+  const stateIdx = state.srefGroups.findIndex((x) => x.id === gid);
+  state.srefGroups[stateIdx] = { ...state.srefGroups[stateIdx], pinned: pinning };
+
+  const { group } = await apiSrefGroup('PATCH', '/' + gid, { pinned: pinning }) || {};
+  if (group) state.srefGroups[stateIdx] = group;
+
+  const json = await apiSrefGroupReorder(ids);
+  if (json?.srefGroups) state.srefGroups = json.srefGroups;
+
+  state.sort = 'manual';
+  syncSortUI();
   renderSrefs();
   if (state.libraryView === 'srefs') renderLibraryBrowse();
 }
@@ -3866,11 +4377,8 @@ function wireSrefs() {
     clearTimeout(srefClickTimer);
     srefClickTimer = setTimeout(() => {
       if (suppressSrefNavClick) { suppressSrefNavClick = false; return; }
-      state.activeSref = state.activeSref === sref ? null : sref;
-      state.activeCollection = null;
-      state.filters.favOnly = false;
-      state.libraryView = null;
-      render();
+      if (state.activeSref === sref) goToAllLibrary();
+      else openSrefView(sref);
     }, 220);
   });
 
@@ -3886,9 +4394,9 @@ function wireSrefs() {
 
   $('new-sref').addEventListener('click', async (e) => {
     e.stopPropagation();
-    const { group } = await apiSrefGroup('POST', '', { name: 'Untitled sref' }) || {};
+    const { group } = await apiSrefGroup('POST', '', { name: nextUntitledSrefName() }) || {};
     if (!group) return;
-    state.srefGroups.push(group);
+    upsertSrefGroup(group);
     render();
     renderSrefs();
     const nameEl = $('library-browse-grid')?.querySelector(`[data-gid="${group.id}"] .sref-name`)
@@ -3911,10 +4419,22 @@ async function boot() {
     state.collections = json.collections || [];
     state.srefGroups = json.srefGroups || [];
     state.cloud = Boolean(json.cloud);
+    state.libraryPath = json.libraryPath || '';
+    state.watchedFolders = json.watchedFolders || [];
+    state.watchSettings = json.watchSettings || { autoImport: true };
+    const settingsBtn = $('settings-btn');
+    if (settingsBtn) settingsBtn.hidden = state.cloud;
+    const browseBtn = $('watch-folder-browse');
+    const revealBtn = $('settings-library-reveal');
+    if (browseBtn) browseBtn.hidden = state.cloud;
+    if (revealBtn) revealBtn.hidden = state.cloud;
+    if (!state.cloud) wireWatchStream();
   } catch (err) {
     toast('Cannot reach the Lens server', 'error');
   }
-  render();
+  const snap = validateNavSnapshot(snapshotFromHash(location.hash));
+  await applyNavSnapshot(snap, { scroll: false });
+  commitNav({ replace: true });
 }
 
 boot();

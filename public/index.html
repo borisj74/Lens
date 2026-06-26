@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=93" />
+  <link rel="stylesheet" href="style.css?v=101" />
 </head>
 <body>
   <header class="topnav" id="topnav">
@@ -33,9 +33,9 @@
         <span class="visually-hidden" id="count-collections">0</span>
         <svg class="pill-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
       </button>
-      <button class="nav-icon-btn nav-icon-btn--expand" id="srefs-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="srefs-pop" aria-label="Srefs" title="Srefs">
+      <button class="nav-icon-btn nav-icon-btn--expand" id="srefs-trigger" aria-haspopup="true" aria-expanded="false" aria-controls="srefs-pop" aria-label="SREFs" title="SREFs">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 12h-5"/><path d="M15 8h-5"/><path d="M19 17V5a2 2 0 0 0-2-2H4"/><path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3"/></svg>
-        <span class="nav-icon-label">Srefs</span>
+        <span class="nav-icon-label">SREFs</span>
         <span class="visually-hidden" id="count-srefs">0</span>
         <svg class="pill-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
       </button>
@@ -101,6 +101,9 @@
         <button class="btn-circle" id="import-btn" aria-label="Import images" title="Import">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>
         </button>
+        <button class="btn-circle" id="settings-btn" aria-label="Settings" title="Settings" hidden>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
         <input type="file" id="file-input" multiple accept="image/*,video/*" hidden />
       </div>
     </header>
@@ -133,9 +136,9 @@
       </div>
     </div>
 
-    <div class="nav-pop nav-pop--library nav-pop--browse" id="srefs-pop" role="menu" aria-label="Srefs" hidden>
+    <div class="nav-pop nav-pop--library nav-pop--browse" id="srefs-pop" role="menu" aria-label="SREFs" hidden>
       <div class="nav-pop-head">
-        <span class="nav-pop-title">Srefs</span>
+        <span class="nav-pop-title">SREFs</span>
         <span class="nav-pop-count-badge" id="srefs-count-badge">0</span>
         <button class="nav-pop-add" id="new-sref" aria-label="New sref" title="New sref">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
@@ -143,7 +146,7 @@
       </div>
       <div class="nav-pop-search nav-pop-search--block">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="srefs-search" type="text" placeholder="Search srefs" autocomplete="off" aria-label="Search srefs" />
+        <input id="srefs-search" type="text" placeholder="Search SREFs" autocomplete="off" aria-label="Search SREFs" />
       </div>
       <div class="nav-pop-body nav-pop-body--scroll" id="srefs-body">
         <div class="nav-pop-list" id="srefs-list"></div>
@@ -153,7 +156,7 @@
             <span class="nav-list-thumb-overlay" id="srefs-all-overlay" hidden></span>
           </span>
           <span class="nav-list-all-label">
-            <span>All srefs</span>
+            <span>All SREFs</span>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
           </span>
         </button>
@@ -225,6 +228,43 @@
       <div class="library-browse-section-label" id="library-browse-all-label" hidden>ALL COLLECTIONS · 0</div>
       <div class="library-browse-grid" id="library-browse-grid"></div>
       <div class="library-browse-empty filter-empty" id="library-browse-empty" hidden>No collections yet. Select images, then “Add to collection”.</div>
+    </div>
+
+    <div class="settings-view" id="settings-view" hidden>
+      <div class="settings-view-inner">
+      <header class="settings-header">
+        <nav class="settings-crumb" aria-label="Breadcrumb">
+          <button type="button" class="library-crumb library-crumb--link" id="settings-back">Library</button>
+          <span class="library-crumb-sep" aria-hidden="true">/</span>
+          <span class="library-crumb library-crumb--current">Settings</span>
+        </nav>
+        <h1 class="settings-title">Settings</h1>
+      </header>
+      <section class="settings-section">
+        <div class="settings-section-head">
+          <h2 class="settings-section-title">Folder watching</h2>
+          <p class="settings-section-desc">New images and videos in these folders are imported automatically while Lens is running.</p>
+        </div>
+        <label class="settings-toggle">
+          <input type="checkbox" id="watch-auto-import" checked />
+          <span>Auto-import from watched folders</span>
+        </label>
+        <div class="settings-folder-add">
+          <input type="text" class="settings-path-input" id="watch-folder-path" placeholder="~/Downloads/Midjourney" autocomplete="off" aria-label="Folder path to watch" />
+          <button type="button" class="settings-btn settings-btn--secondary" id="watch-folder-browse">Browse…</button>
+          <button type="button" class="settings-btn" id="watch-folder-add">Add folder</button>
+        </div>
+        <ul class="settings-folder-list" id="watch-folder-list" aria-label="Watched folders"></ul>
+        <p class="settings-hint" id="watch-folder-empty">No folders watched yet. Add a path above — use <code>~</code> for your home directory.</p>
+      </section>
+      <section class="settings-section">
+        <div class="settings-section-head">
+          <h2 class="settings-section-title">Library</h2>
+        </div>
+        <p class="settings-meta"><span class="settings-meta-label">Storage path</span><code class="settings-meta-value" id="settings-library-path">—</code></p>
+        <button type="button" class="settings-btn settings-btn--secondary" id="settings-library-reveal">Open in Finder</button>
+      </section>
+      </div>
     </div>
 
     <header class="collection-context" id="collection-context" hidden>
@@ -462,7 +502,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=96"></script>
+  <script src="app.js?v=104"></script>
   <script type="module" src="color-btn-shader.js?v=2"></script>
   <script type="module" src="logo-shader.js?v=1"></script>
 </body>

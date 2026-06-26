@@ -5,6 +5,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const zlib = require('zlib');
+const { importFileFromPath } = require('./lib/serverImport');
+const { createFolderWatcher } = require('./lib/folderWatch');
+const { scanFolder } = require('./lib/scanFolder');
+const { execFile } = require('child_process');
 
 const PORT = process.env.PORT || 4567;
 
@@ -35,7 +39,7 @@ if (!IS_CLOUD) {
 
 // ---------- DB shape helpers ----------
 function emptyDb() {
-  return { items: [], collections: [], srefGroups: [] };
+  return { items: [], collections: [], srefGroups: [], watchedFolders: [], watchSettings: { autoImport: true } };
 }
 
 function normalizeDb(raw) {
@@ -43,9 +47,70 @@ function normalizeDb(raw) {
   if (!Array.isArray(d.items)) d.items = [];
   if (!Array.isArray(d.collections)) d.collections = [];
   if (!Array.isArray(d.srefGroups)) d.srefGroups = [];
+  if (!Array.isArray(d.watchedFolders)) d.watchedFolders = [];
+  if (!d.watchSettings || typeof d.watchSettings !== 'object') d.watchSettings = { autoImport: true };
+  if (typeof d.watchSettings.autoImport !== 'boolean') d.watchSettings.autoImport = true;
   for (const c of d.collections) if (typeof c.pinned !== 'boolean') c.pinned = false;
   for (const g of d.srefGroups) if (typeof g.pinned !== 'boolean') g.pinned = false;
+  for (const wf of d.watchedFolders) {
+    if (!wf.id) wf.id = crypto.randomUUID();
+    if (typeof wf.path !== 'string') wf.path = '';
+    if (typeof wf.addedAt !== 'number') wf.addedAt = Date.now();
+  }
+  dedupeSrefGroups(d);
   return d;
+}
+
+function srefNameKey(name) {
+  return typeof name === 'string' ? name.trim() : '';
+}
+
+function pickSrefGroupSurvivor(a, b) {
+  let keep = a;
+  let drop = b;
+  if (b.pinned && !a.pinned) {
+    keep = b;
+    drop = a;
+  } else if (!b.pinned && !a.pinned && (b.createdAt || 0) < (a.createdAt || 0)) {
+    keep = b;
+    drop = a;
+  } else if (!b.pinned && !a.pinned && (b.createdAt || 0) === (a.createdAt || 0) && b.id < a.id) {
+    keep = b;
+    drop = a;
+  }
+  keep.pinned = Boolean(keep.pinned || drop.pinned);
+  return { keep, drop };
+}
+
+/** Collapse duplicate sidebar folders that share the same sref name. */
+function dedupeSrefGroups(target = db) {
+  const byName = new Map();
+  const remove = new Set();
+  for (const g of target.srefGroups) {
+    const name = srefNameKey(g.name);
+    if (!name) {
+      remove.add(g.id);
+      continue;
+    }
+    g.name = name;
+    const prev = byName.get(name);
+    if (!prev) {
+      byName.set(name, g);
+      continue;
+    }
+    const { keep, drop } = pickSrefGroupSurvivor(prev, g);
+    byName.set(name, keep);
+    remove.add(drop.id);
+  }
+  if (!remove.size) return false;
+  target.srefGroups = target.srefGroups.filter((g) => !remove.has(g.id));
+  return true;
+}
+
+function findSrefGroupByName(name) {
+  const key = srefNameKey(name);
+  if (!key) return null;
+  return db.srefGroups.find((g) => g.name === key) || null;
 }
 
 let db = emptyDb();
@@ -145,7 +210,7 @@ function saveDb() {
 }
 
 function ensureSrefGroupsFromItems() {
-  let changed = false;
+  let changed = dedupeSrefGroups();
   const names = new Set(db.srefGroups.map((g) => g.name));
   for (const it of db.items) {
     const s = typeof it.sref === 'string' ? it.sref.trim() : '';
@@ -320,14 +385,19 @@ app.use('/api', async (req, res, next) => {
 app.get('/api/items', async (req, res) => {
   if (ensureSrefGroupsFromItems()) await saveDb();
   res.set('Cache-Control', 'no-store');
-  res.json({
+  const payload = {
     items: db.items,
     collections: db.collections,
     srefGroups: db.srefGroups,
     libraryPath: LIB_DIR,
     storage: STORAGE_MODE,
     cloud: IS_CLOUD,
-  });
+  };
+  if (!IS_CLOUD) {
+    payload.watchedFolders = db.watchedFolders;
+    payload.watchSettings = db.watchSettings;
+  }
+  res.json(payload);
 });
 
 // ---------- Collections ----------
@@ -385,8 +455,10 @@ app.put('/api/collections/reorder', async (req, res) => {
 
 // ---------- Sref groups (sidebar folders) ----------
 app.post('/api/sref-groups', async (req, res) => {
-  const name = String(req.body.name || '').trim();
+  const name = srefNameKey(req.body.name);
   if (!name) return res.status(400).json({ error: 'Name required' });
+  const existing = findSrefGroupByName(name);
+  if (existing) return res.json({ group: existing, existing: true });
   const group = { id: crypto.randomUUID(), name, pinned: false, createdAt: Date.now() };
   db.srefGroups.push(group);
   await saveDb();
@@ -401,6 +473,8 @@ app.patch('/api/sref-groups/:id', async (req, res) => {
   }
   const nextName = typeof req.body.name === 'string' ? req.body.name.trim() : '';
   if (nextName && nextName !== group.name) {
+    const clash = db.srefGroups.find((g) => g.id !== group.id && g.name === nextName);
+    if (clash) return res.status(409).json({ error: 'Sref name already exists' });
     const prevName = group.name;
     group.name = nextName;
     for (const it of db.items) {
@@ -420,6 +494,18 @@ app.delete('/api/sref-groups/:id', async (req, res) => {
   db.srefGroups = db.srefGroups.filter((g) => g.id !== group.id);
   await saveDb();
   res.json({ ok: true });
+});
+
+app.put('/api/sref-groups/reorder', async (req, res) => {
+  const ids = req.body && req.body.ids;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: 'ids required' });
+  const byId = new Map(db.srefGroups.map((g) => [g.id, g]));
+  if (ids.length !== db.srefGroups.length || ids.some((id) => !byId.has(id))) {
+    return res.status(400).json({ error: 'ids must include every sref group once' });
+  }
+  db.srefGroups = ids.map((id) => byId.get(id));
+  await saveDb();
+  res.json({ srefGroups: db.srefGroups });
 });
 
 // ---------- Blob client-upload token endpoint (cloud only) ----------
@@ -612,9 +698,141 @@ app.delete('/api/items/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Folder watching (local only) ----------
+const watchSseClients = new Set();
+let folderWatcher = null;
+const scanInProgress = new Set();
+
+function broadcastWatchEvent(payload) {
+  const data = `data: ${JSON.stringify(payload)}\n\n`;
+  for (const client of watchSseClients) {
+    try { client.write(data); } catch { watchSseClients.delete(client); }
+  }
+}
+
+function finishWatchBatch(payload) {
+  void (async () => {
+    if (ensureSrefGroupsFromItems()) await saveDb();
+    broadcastWatchEvent(payload);
+  })();
+}
+
+function getImportCtx() {
+  return {
+    ORIG_DIR,
+    THUMB_DIR,
+    LIB_DIR,
+    db,
+    hashIndex,
+    buildItem,
+    sha256File,
+    readPngDescription,
+    promptFromDescription,
+    saveDb,
+  };
+}
+
 if (!IS_CLOUD) {
+  folderWatcher = createFolderWatcher({
+    getConfig: () => ({ watchedFolders: db.watchedFolders, watchSettings: db.watchSettings }),
+    importFile: (filePath) => importFileFromPath(filePath, getImportCtx()),
+    onBatchComplete: finishWatchBatch,
+  });
+
+  app.get('/api/watch/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    watchSseClients.add(res);
+    res.write(': connected\n\n');
+    req.on('close', () => watchSseClients.delete(res));
+  });
+
+  app.get('/api/watch/folders', (req, res) => {
+    res.json({ watchedFolders: db.watchedFolders, watchSettings: db.watchSettings });
+  });
+
+  app.post('/api/watch/folders', async (req, res) => {
+    const rawPath = String(req.body.path || '').trim();
+    if (!rawPath) return res.status(400).json({ error: 'Path required' });
+    const abs = folderWatcher.expandUserPath(rawPath);
+    if (!fs.existsSync(abs)) return res.status(400).json({ error: 'Path does not exist' });
+    if (!fs.statSync(abs).isDirectory()) return res.status(400).json({ error: 'Path is not a directory' });
+    const normalized = abs;
+    if (db.watchedFolders.some((f) => folderWatcher.expandUserPath(f.path) === normalized)) {
+      return res.status(409).json({ error: 'Folder already watched' });
+    }
+    const entry = { id: crypto.randomUUID(), path: rawPath, addedAt: Date.now() };
+    db.watchedFolders.push(entry);
+    await saveDb();
+    folderWatcher.restart();
+    res.json({ folder: entry, watchedFolders: db.watchedFolders });
+  });
+
+  app.delete('/api/watch/folders/:id', async (req, res) => {
+    const before = db.watchedFolders.length;
+    db.watchedFolders = db.watchedFolders.filter((f) => f.id !== req.params.id);
+    if (db.watchedFolders.length === before) return res.status(404).json({ error: 'Not found' });
+    await saveDb();
+    folderWatcher.restart();
+    res.json({ watchedFolders: db.watchedFolders });
+  });
+
+  app.patch('/api/watch/settings', async (req, res) => {
+    if (typeof req.body.autoImport === 'boolean') {
+      db.watchSettings.autoImport = req.body.autoImport;
+      await saveDb();
+      folderWatcher.restart();
+    }
+    res.json({ watchSettings: db.watchSettings });
+  });
+
+  app.post('/api/watch/folders/:id/scan', async (req, res) => {
+    const folder = db.watchedFolders.find((f) => f.id === req.params.id);
+    if (!folder) return res.status(404).json({ error: 'Not found' });
+    if (scanInProgress.has(folder.id)) return res.status(409).json({ error: 'Scan already in progress' });
+    const abs = folderWatcher.expandUserPath(folder.path);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+      return res.status(400).json({ error: 'Folder not found on disk' });
+    }
+    scanInProgress.add(folder.id);
+    res.json({ ok: true, scanning: true });
+    void scanFolder(abs, {
+      importFile: (filePath) => importFileFromPath(filePath, getImportCtx()),
+      onBatchComplete: finishWatchBatch,
+    }).catch((err) => {
+      console.error('Folder scan failed:', err.message);
+    }).finally(() => {
+      scanInProgress.delete(folder.id);
+    });
+  });
+
+  app.post('/api/watch/pick-folder', (req, res) => {
+    if (process.platform !== 'darwin') {
+      return res.status(501).json({ error: 'Native folder picker is only available on macOS' });
+    }
+    execFile('osascript', ['-e', 'POSIX path of (choose folder with prompt "Choose a folder to watch")'], (err, stdout) => {
+      if (err) return res.status(400).json({ error: 'Cancelled' });
+      const picked = String(stdout || '').trim();
+      if (!picked) return res.status(400).json({ error: 'No folder selected' });
+      res.json({ path: picked });
+    });
+  });
+
+  app.post('/api/library/reveal', (req, res) => {
+    if (process.platform !== 'darwin') {
+      return res.status(501).json({ error: 'Reveal in Finder is only available on macOS' });
+    }
+    execFile('open', [LIB_DIR], (err) => {
+      if (err) return res.status(500).json({ error: 'Could not open Finder' });
+      res.json({ ok: true });
+    });
+  });
+
   loadLocalDb();
   backfillPromptsFromMetadata();
+  folderWatcher.restart();
 }
 
 if (require.main === module) {

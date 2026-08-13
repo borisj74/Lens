@@ -832,13 +832,15 @@ if (!IS_CLOUD) {
 
   loadLocalDb();
   backfillPromptsFromMetadata();
-  folderWatcher.restart();
 }
 
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`Lens running at http://localhost:${PORT}`);
     console.log(`Library: ${LIB_DIR}  (storage: ${STORAGE_MODE})`);
+    if (folderWatcher) {
+      setImmediate(() => folderWatcher.restart());
+    }
   });
 }
 
